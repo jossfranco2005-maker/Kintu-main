@@ -1,0 +1,223 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Kintu Finance AI — "La libreta del mercado"
+ * Warm paper-and-ink notebook system. All colors are semantic tokens.
+ * coral is exclusively for real urgency (escalated tickets, exceeded budget).
+ * Never use coral decoratively or for the "expense" control (that's clay).
+ */
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+
+  --font-serif: "Fraunces", ui-serif, Georgia, serif;
+  --font-sans: "Work Sans", ui-sans-serif, system-ui, sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-leaf: var(--leaf);
+  --color-clay: var(--clay);
+  --color-gold: var(--gold);
+  --color-coral: var(--coral);
+  --color-hairline: var(--hairline);
+}
+
+:root {
+  --radius: 0.5rem;
+
+  /* La libreta del mercado — paper base */
+  --paper: oklch(0.955 0.018 82); /* #EFE8D8 tagua/marfil */
+  --ink: oklch(0.24 0.02 145); /* #1C2A1E deep ink */
+  --leaf: oklch(0.42 0.09 145); /* #2F5233 primary green */
+  --clay: oklch(0.42 0.06 55); /* #6B4226 warm brown */
+  --gold: oklch(0.75 0.14 75); /* #D9A441 soft warmth */
+  --coral: oklch(0.58 0.18 35); /* #C1502E urgency only */
+  --hairline: oklch(0.72 0.04 60 / 0.35);
+
+  /* Semantic → paper system */
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: oklch(0.98 0.014 82);
+  --card-foreground: var(--ink);
+  --popover: oklch(0.98 0.014 82);
+  --popover-foreground: var(--ink);
+  --primary: var(--leaf);
+  --primary-foreground: oklch(0.98 0.014 82);
+  --secondary: oklch(0.9 0.02 70);
+  --secondary-foreground: var(--ink);
+  --muted: oklch(0.92 0.015 75);
+  --muted-foreground: oklch(0.42 0.03 90);
+  --accent: oklch(0.9 0.03 75);
+  --accent-foreground: var(--ink);
+  --destructive: var(--coral);
+  --destructive-foreground: oklch(0.98 0.014 82);
+  --border: oklch(0.85 0.02 70);
+  --input: oklch(0.88 0.018 72);
+  --ring: var(--leaf);
+}
+
+.dark {
+  --paper: oklch(0.22 0.02 90);
+  --ink: oklch(0.95 0.015 82);
+  --leaf: oklch(0.62 0.11 145);
+  --clay: oklch(0.6 0.07 55);
+  --gold: oklch(0.78 0.14 75);
+  --coral: oklch(0.68 0.18 35);
+  --hairline: oklch(0.6 0.03 60 / 0.35);
+
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: oklch(0.28 0.02 90);
+  --card-foreground: var(--ink);
+  --popover: oklch(0.28 0.02 90);
+  --popover-foreground: var(--ink);
+  --primary: var(--leaf);
+  --primary-foreground: oklch(0.15 0.02 145);
+  --secondary: oklch(0.32 0.02 80);
+  --secondary-foreground: var(--ink);
+  --muted: oklch(0.3 0.02 80);
+  --muted-foreground: oklch(0.72 0.03 82);
+  --accent: oklch(0.34 0.03 80);
+  --accent-foreground: var(--ink);
+  --destructive: var(--coral);
+  --destructive-foreground: oklch(0.98 0.014 82);
+  --border: oklch(0.4 0.02 70);
+  --input: oklch(0.38 0.02 72);
+  --ring: var(--leaf);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html,
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "cv11";
+  }
+  h1,
+  h2,
+  h3,
+  .font-serif {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  .hairline {
+    border-bottom: 1px solid var(--color-hairline);
+  }
+
+  /* Modern Notebook Theme Utilities */
+  .bg-notebook-grid {
+    background-size: 24px 24px;
+    background-image:
+      linear-gradient(to right, var(--color-hairline) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--color-hairline) 1px, transparent 1px);
+  }
+
+  .bg-notebook-lines {
+    background-size: 100% 28px;
+    background-image: linear-gradient(to bottom, transparent 27px, var(--color-hairline) 27px);
+  }
+
+  .notebook-card {
+    position: relative;
+    background-color: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-2xl);
+    box-shadow:
+      0 4px 20px -2px rgba(28, 42, 30, 0.05),
+      0 2px 8px -1px rgba(28, 42, 30, 0.03);
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .notebook-card:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 8px 30px -4px rgba(28, 42, 30, 0.08),
+      0 4px 12px -2px rgba(28, 42, 30, 0.04);
+    border-color: color-mix(in oklab, var(--color-primary) 30%, var(--color-border));
+  }
+
+  .premium-input {
+    width: 100%;
+    min-height: 48px;
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-xl);
+    border: 1px solid var(--color-input);
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    box-shadow: inset 0 2px 4px 0 rgba(28, 42, 30, 0.03);
+    transition: all 0.2s ease-in-out;
+  }
+
+  .premium-input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow:
+      inset 0 2px 4px 0 rgba(28, 42, 30, 0.02),
+      0 0 0 3px color-mix(in oklab, var(--color-primary) 15%, transparent);
+  }
+
+  .highlight-ink {
+    position: relative;
+    display: inline-block;
+  }
+
+  .highlight-ink::after {
+    content: "";
+    position: absolute;
+    bottom: 2px;
+    left: 0;
+    width: 100%;
+    height: 8px;
+    background-color: color-mix(in oklab, var(--color-gold) 35%, transparent);
+    z-index: -1;
+    transform: skewX(-12deg);
+    border-radius: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}
