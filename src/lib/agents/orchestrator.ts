@@ -27,7 +27,7 @@ import {
   findTransactionDraftById,
   markTransactionDraftSaved,
 } from "@/lib/agents/transaction-drafts.server";
-import { getModel } from "@/lib/ai/gateway.server";
+import { withGroqKeyFailover } from "@/lib/ai/gateway.server";
 import { generateStructured } from "@/lib/ai/structured.server";
 import { firstOfMonth } from "@/lib/finance/budget";
 import { formatMoney, normalizeCategory } from "@/lib/finance/categorize";
@@ -166,11 +166,14 @@ async function handleSummary(input: OrchestratorInput): Promise<OrchestratorResu
 
 async function handleSmalltalk(input: OrchestratorInput): Promise<OrchestratorResult> {
   try {
-    const { text: reply } = await generateText({
-      model: getModel(),
-      system: SYSTEM_BASE,
-      prompt: `Responde en 1 o 2 frases, de forma cálida y breve. Sugiere que puedes registrar gastos, revisar presupuestos o abrir un caso con una persona cuando exista un problema.\n\nMensaje: ${input.text}`,
-    });
+    const { text: reply } = await withGroqKeyFailover((model) =>
+      generateText({
+        model,
+        maxRetries: 0,
+        system: SYSTEM_BASE,
+        prompt: `Responde en 1 o 2 frases, de forma cálida y breve. Sugiere que puedes registrar gastos, revisar presupuestos o abrir un caso con una persona cuando exista un problema.\n\nMensaje: ${input.text}`,
+      }),
+    );
     return { reply };
   } catch (error) {
     console.error("[orchestrator] Error in smalltalk:", error);

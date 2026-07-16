@@ -10,7 +10,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { OrchestratorResult } from "@/lib/agents/orchestrator";
 import { SYSTEM_BASE } from "@/lib/agents/schemas";
-import { getModel, GROQ_JSON_OPTIONS } from "@/lib/ai/gateway.server";
+import { GROQ_JSON_OPTIONS, withGroqKeyFailover } from "@/lib/ai/gateway.server";
 import { firstOfMonth, nextMonthStart } from "@/lib/finance/budget";
 
 // Solo intenciones donde hay una señal financiera real que evaluar
@@ -160,12 +160,15 @@ IMPORTANTE: el mensaje debe ser entre 1 y 2 oraciones. Usa emojis con moderació
 Responde SOLO con JSON sin markdown:
 {"should_notify": true/false, "level": "info"|"warning"|"urgent"|null, "title": "..." o null, "message": "..." o null}`;
 
-    const { text: raw } = await generateText({
-      model: getModel(),
-      providerOptions: GROQ_JSON_OPTIONS,
-      system: SYSTEM_BASE,
-      prompt,
-    });
+    const { text: raw } = await withGroqKeyFailover((model) =>
+      generateText({
+        model,
+        maxRetries: 0,
+        providerOptions: GROQ_JSON_OPTIONS,
+        system: SYSTEM_BASE,
+        prompt,
+      }),
+    );
 
     let decision: {
       should_notify: boolean;

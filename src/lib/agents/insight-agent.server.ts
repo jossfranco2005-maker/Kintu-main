@@ -4,7 +4,7 @@ import { generateText } from "ai";
 
 import { SYSTEM_BASE } from "@/lib/agents/schemas";
 import { generateStructured } from "@/lib/ai/structured.server";
-import { getModel } from "@/lib/ai/gateway.server";
+import { withGroqKeyFailover } from "@/lib/ai/gateway.server";
 import { formatMoney } from "@/lib/finance/categorize";
 import { firstOfMonth, nextMonthStart } from "@/lib/finance/budget";
 import { monthRangeForIsoDate, shiftIsoDate } from "@/lib/finance/date";
@@ -239,11 +239,14 @@ REGLAS DE RESPUESTA:
 5. PRIORIDAD DEL CONTEXTO:
    - Prioriza siempre analizar los datos financieros antes de responder. Solo di que no entiendes cuando la pregunta sea realmente ambigua y no tenga relación con finanzas o soporte técnico.`;
 
-    const { text: reply } = await generateText({
-      model: getModel(),
-      system: systemPrompt,
-      prompt: `Mensaje del usuario: "${userText}"`,
-    });
+    const { text: reply } = await withGroqKeyFailover((model) =>
+      generateText({
+        model,
+        maxRetries: 0,
+        system: systemPrompt,
+        prompt: `Mensaje del usuario: "${userText}"`,
+      }),
+    );
 
     return reply;
   } catch (error) {

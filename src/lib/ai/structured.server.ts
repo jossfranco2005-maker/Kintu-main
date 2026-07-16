@@ -1,7 +1,7 @@
 import { generateText, Output } from "ai";
 import { z } from "zod";
 
-import { getModel, GROQ_JSON_OPTIONS } from "@/lib/ai/gateway.server";
+import { GROQ_JSON_OPTIONS, withGroqKeyFailover } from "@/lib/ai/gateway.server";
 
 type StructuredGenerationInput<Schema extends z.ZodTypeAny> = {
   schema: Schema;
@@ -18,18 +18,20 @@ export async function generateStructured<Schema extends z.ZodTypeAny>(
 ): Promise<z.infer<Schema>> {
   const { schema, prompt, system } = input;
 
-  const { output } = await generateText({
-    model: getModel(),
+  const { output } = await withGroqKeyFailover((model) =>
+    generateText({
+      model,
+      maxRetries: 0,
 
-    providerOptions: GROQ_JSON_OPTIONS,
+      providerOptions: GROQ_JSON_OPTIONS,
 
-    output: Output.object({
-      schema,
-    }),
+      output: Output.object({
+        schema,
+      }),
 
-    system,
+      system,
 
-    prompt: `
+      prompt: `
 ${prompt}
 
 IMPORTANTE:
@@ -37,7 +39,8 @@ Responde exclusivamente con un objeto JSON válido.
 No incluyas Markdown, bloques de código ni explicaciones
 fuera del objeto JSON.
     `.trim(),
-  });
+    }),
+  );
 
   return output;
 }
