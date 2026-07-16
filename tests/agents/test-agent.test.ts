@@ -42,6 +42,7 @@ describe("Kintu conversational financial agent", () => {
           return {
             eq: () => {
               return {
+                order: () => Promise.resolve({ data: [], error: null }),
                 eq: () => {
                   return {
                     gte: () => {
