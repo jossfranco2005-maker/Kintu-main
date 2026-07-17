@@ -221,9 +221,9 @@ export const loadHistory = createServerFn({ method: "GET" })
       .from("messages")
       .select("id, role, content, metadata, created_at")
       .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: true })
+      .order("created_at", { ascending: false })
       .limit(200);
-    return { conversationId, messages: messages || [] };
+    return { conversationId, messages: (messages || []).reverse() };
   });
 
 // ---- seedDemoData: idempotent, only if user has no data ----
