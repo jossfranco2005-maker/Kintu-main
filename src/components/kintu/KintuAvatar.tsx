@@ -141,7 +141,13 @@ export function KintuAvatar({
   return (
     <div
       className={`kintu-avatar-wrap ${celebrate ? "kintu-jump" : ""} ${sad ? "kintu-droop" : ""}`}
-      style={{ width: size, height: size, maxWidth: "100%", maxHeight: "100%", display: "inline-block" }}
+      style={{
+        width: size,
+        height: size,
+        maxWidth: "100%",
+        maxHeight: "100%",
+        display: "inline-block",
+      }}
     >
       <svg
         viewBox="0 0 200 200"
