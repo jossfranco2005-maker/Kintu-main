@@ -91,6 +91,33 @@ export type SaveConfirmedTransactionResult = {
 const MAX_STEPS = 8;
 const TRANSACTION_CLARIFICATION_REPLY =
   "No estoy completamente seguro de lo que deseas hacer. ¿Quieres registrar un ingreso, un gasto, crear un presupuesto o pedir ayuda?";
+const THIRD_PARTY_GUIDANCE_REPLY =
+  "Entiendo que esa persona esté preocupada. Puedo darte orientación general, pero no puedo revisar sus movimientos desde tu cuenta; para analizar sus datos tendría que usar su propia cuenta.";
+
+function hasExplicitThirdPartyFinancialSubject(text: string): boolean {
+  const normalized = text
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+  if (/\bmis\s+(?:gastos|movimientos|finanzas|presupuestos?)\b/.test(normalized)) return false;
+  if (/\bme\s+(?:pago|deposito|transfirio|consigno)\b/.test(normalized)) return false;
+
+  const relationship =
+    /\b(?:(?:mi|un|una)\s+(?:herman[oa]|amig[oa]|pareja|compan(?:ero|era)|padre|madre|hij[oa]|familiar|colega)|otra persona)\b/.test(
+      normalized,
+    );
+  const properName = /^[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+\b/.test(text.trim());
+  if (!relationship && !properName) return false;
+
+  const explicitOwnership =
+    /\b(?:sus?|de esa persona)\s+(?:gastos|movimientos|finanzas|presupuestos?|cuenta|deudas?)\b/.test(
+      normalized,
+    );
+  const thirdPersonEvent =
+    /\b(?:gasto|compro|debe|perdio)\b/.test(normalized) &&
+    /\b(?:porque|ya que|por sus?|con sus?)\b/.test(normalized);
+  return explicitOwnership || thirdPersonEvent;
+}
 
 function recoverImmediateClarifiedRequest(params: {
   currentText: string;
@@ -292,6 +319,9 @@ export async function runOrchestrator(
   }
 
   let understanding = await understandMessage(input.text, recentMessages);
+  if (hasExplicitThirdPartyFinancialSubject(input.text)) {
+    return { reply: THIRD_PARTY_GUIDANCE_REPLY };
+  }
   const recoveredRequest = recoverImmediateClarifiedRequest({
     currentText: input.text,
     history: recentMessages,

@@ -261,6 +261,41 @@ describe("expense flow integration", () => {
     expect(result.reply).not.toContain("2025-07-20");
   });
 
+  it("prioriza una fecha explícita nueva sobre la sugerencia anterior", async () => {
+    generateStructuredMock.mockResolvedValue({
+      amount: null,
+      date: null,
+      category: null,
+      merchant: null,
+      description: null,
+    });
+    const result = await completeExpenseFlow({
+      text: "En realidad fue el 18 de julio de 2025.",
+      today: "2026-07-17",
+      currentDraft: {
+        type: "expense",
+        amount: 300,
+        currency: "USD",
+        date: null,
+        category: "otros",
+        merchant: "tienda de computadoras",
+        description: "computadora",
+      },
+      history: [
+        {
+          role: "user",
+          content: "Me compré una computadora por 300 dólares el 20 de julio.",
+        },
+        {
+          role: "assistant",
+          content: "¿Te refieres al 20 de julio de 2025?",
+        },
+      ],
+    });
+    expect(result.draft?.date).toBe("2025-07-18");
+    expect(result.reply).toContain("18 de julio de 2025");
+  });
+
   it("usa la corrección determinista sin consultar al LLM", async () => {
     const result = await reviseExpenseFlow({
       text: "No fue comida, fue Mascotas",

@@ -47,6 +47,7 @@ export type CompleteExpenseFlowInput = {
   currentDraft: ExpenseDraft;
   userCategories?: Set<string>;
   history?: Array<{ role: string; content: string }>;
+  today?: string;
 };
 
 export type ReviseExpenseFlowInput = CompleteExpenseFlowInput;
@@ -79,6 +80,34 @@ export const ExpenseCorrectionSchema = z.object({
 function cleanNullableText(value: string | null | undefined): string | null {
   const cleaned = value?.trim();
   return cleaned ? cleaned : null;
+}
+
+function recoverConfirmedSuggestedDate(params: {
+  text: string;
+  history: Array<{ role: string; content: string }>;
+  today: string;
+}): string | null {
+  const { text, history, today } = params;
+  if (resolveTransactionDate(null, text, today)) return null;
+
+  const previousAssistant = history.at(-1);
+  const previousUser = history.at(-2);
+  if (previousAssistant?.role !== "assistant" || previousUser?.role !== "user") return null;
+
+  const issue = inspectTransactionDateIssue(previousUser.content, today);
+  if (issue?.kind !== "future_without_year" || !issue.suggestedDate) return null;
+  if (!previousAssistant.content.includes(formatIsoDateInSpanish(issue.suggestedDate))) return null;
+
+  const suggestedYear = issue.suggestedDate.slice(0, 4);
+  const mentionedYear = text.match(/\b(?:19|20)\d{2}\b/)?.[0];
+  if (mentionedYear) return mentionedYear === suggestedYear ? issue.suggestedDate : null;
+
+  const normalized = text
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .trim();
+  return /^(?:si|correcto|confirmo|esa fecha)\b/.test(normalized) ? issue.suggestedDate : null;
 }
 
 function inferTransactionType(text: string): "income" | "expense" {
@@ -198,7 +227,13 @@ ${text}
 export async function completeExpenseFlow(
   input: CompleteExpenseFlowInput,
 ): Promise<ExpenseFlowResult> {
-  const { text, currentDraft, userCategories = new Set<string>(), history = [] } = input;
+  const {
+    text,
+    currentDraft,
+    userCategories = new Set<string>(),
+    history = [],
+    today = todayInEcuador(),
+  } = input;
   const currentNeeds = getMissingExpenseFields(currentDraft);
 
   let patch: TransactionFieldPatch = {
@@ -247,6 +282,13 @@ No inventes valores. Usa null cuando la respuesta no aporte ese dato.
     console.error("[expense-flow] Error completing draft; using deterministic fallback:", error);
   }
 
+  const explicitCurrentDate = resolveTransactionDate(null, text, today);
+  const confirmedSuggestedDate = recoverConfirmedSuggestedDate({ text, history, today });
+  patch = {
+    ...patch,
+    date: explicitCurrentDate ?? confirmedSuggestedDate ?? patch.date,
+  };
+
   const completedDraft = resolveTransactionFields({
     text,
     type: currentDraft.type,
@@ -254,6 +296,7 @@ No inventes valores. Usa null cuando la respuesta no aporte ese dato.
     missingFields: currentNeeds,
     llmPatch: patch,
     userCategories,
+    today,
   });
 
   return buildExpenseFlowResult(completedDraft, userCategories);
