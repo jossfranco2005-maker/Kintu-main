@@ -17,6 +17,12 @@ export type NotificationRow = {
   related_transaction_id: string | null;
   read_at: string | null;
   created_at: string;
+  alerts?: {
+    budget_id: string;
+    budgets: {
+      category: string;
+    } | null;
+  } | null;
 };
 
 export const getNotifications = createServerFn({ method: "GET" })
@@ -28,7 +34,12 @@ export const getNotifications = createServerFn({ method: "GET" })
       supabase
         .from("notifications")
         .select(
-          "id, source, level, title, message, metadata, event_key, related_alert_id, related_ticket_id, related_transaction_id, read_at, created_at",
+          `
+          id, source, level, title, message, metadata, event_key,
+          related_alert_id, related_ticket_id, related_transaction_id,
+          read_at, created_at,
+          alerts(budget_id, budgets(category))
+        `,
         )
         .eq("user_id", userId)
         .order("created_at", { ascending: false })
@@ -44,7 +55,7 @@ export const getNotifications = createServerFn({ method: "GET" })
     if (countResult.error) throw new Error(countResult.error.message);
 
     return {
-      notifications: (itemsResult.data || []) as NotificationRow[],
+      notifications: (itemsResult.data || []) as unknown as NotificationRow[],
       unreadCount: countResult.count ?? 0,
     };
   });

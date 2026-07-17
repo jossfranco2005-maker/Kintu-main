@@ -735,7 +735,39 @@ function ChatPage() {
                         key={notif.id}
                         onClick={() => {
                           if (unread) markReadMutation.mutate(notif.id);
-                          navigate({ to: "/notifications" });
+                          setNotificationsOpen(false);
+
+                          if (notif.source === "budget") {
+                            const category = notif.alerts?.budgets?.category;
+                            const budgetId = notif.alerts?.budget_id;
+                            if (category) {
+                              navigate({
+                                to: "/budgets",
+                                search: { highlightCategory: category, editBudgetId: budgetId },
+                              });
+                            } else {
+                              navigate({ to: "/budgets" });
+                            }
+                          } else if (notif.source === "ticket" && notif.related_ticket_id) {
+                            navigate({
+                              to: "/tickets",
+                              search: { ticketId: notif.related_ticket_id },
+                            });
+                          } else if (
+                            notif.source === "transaction" &&
+                            notif.related_transaction_id
+                          ) {
+                            navigate({
+                              to: "/movements",
+                              search: { transactionId: notif.related_transaction_id },
+                            });
+                          } else if (notif.source === "import") {
+                            navigate({ to: "/movements" });
+                          } else if (notif.source === "chat_agent") {
+                            navigate({ to: "/chat" });
+                          } else {
+                            navigate({ to: "/notifications" });
+                          }
                         }}
                         className={`p-3 text-sm flex items-start gap-2.5 transition-colors relative group cursor-pointer ${bg} ${unread ? "border-l-2 border-l-[#7C6FE0]" : ""}`}
                       >

@@ -1,5 +1,5 @@
 import React from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -7,6 +7,7 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
   deleteNotification,
+  type NotificationRow,
 } from "@/lib/notifications.functions";
 import { AlertTriangle, Bell, Info, CheckCheck, Trash2, Check } from "lucide-react";
 
@@ -29,6 +30,7 @@ const SOURCE_LABEL: Record<string, string> = {
 };
 
 function NotificationsPage() {
+  const navigate = useNavigate();
   const getFn = useServerFn(getNotifications);
   const markReadFn = useServerFn(markNotificationRead);
   const markAllFn = useServerFn(markAllNotificationsRead);
@@ -45,6 +47,39 @@ function NotificationsPage() {
     mutationFn: (id: string) => markReadFn({ data: { id } }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
   });
+
+  const handleNotificationClick = async (n: NotificationRow) => {
+    if (!n.read_at) {
+      markRead.mutate(n.id);
+    }
+
+    if (n.source === "budget") {
+      const category = n.alerts?.budgets?.category;
+      const budgetId = n.alerts?.budget_id;
+      if (category) {
+        navigate({
+          to: "/budgets",
+          search: { highlightCategory: category, editBudgetId: budgetId },
+        });
+      } else {
+        navigate({ to: "/budgets" });
+      }
+    } else if (n.source === "ticket" && n.related_ticket_id) {
+      navigate({
+        to: "/tickets",
+        search: { ticketId: n.related_ticket_id },
+      });
+    } else if (n.source === "transaction" && n.related_transaction_id) {
+      navigate({
+        to: "/movements",
+        search: { transactionId: n.related_transaction_id },
+      });
+    } else if (n.source === "import") {
+      navigate({ to: "/movements" });
+    } else if (n.source === "chat_agent") {
+      navigate({ to: "/chat" });
+    }
+  };
 
   const markAll = useMutation({
     mutationFn: () => markAllFn(),
@@ -109,7 +144,8 @@ function NotificationsPage() {
             return (
               <div
                 key={n.id}
-                className={`w-full flex items-start gap-3 px-6 py-4 transition-colors group relative ${
+                onClick={() => handleNotificationClick(n)}
+                className={`w-full flex items-start gap-3 px-6 py-4 transition-colors group relative cursor-pointer ${
                   isUnread
                     ? "bg-[#7C6FE0]/5 dark:bg-[#7C6FE0]/10 hover:bg-[#7C6FE0]/10"
                     : "hover:bg-[#F5F4FA] dark:hover:bg-card/60"
@@ -144,7 +180,10 @@ function NotificationsPage() {
                 <div className="absolute right-6 top-1/2 -translate-y-1/2 flex items-center gap-2">
                   {isUnread && (
                     <button
-                      onClick={() => markRead.mutate(n.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        markRead.mutate(n.id);
+                      }}
                       className="p-2 rounded-full text-muted-foreground hover:text-[#7C6FE0] hover:bg-muted"
                       title="Marcar como leído"
                     >
@@ -152,7 +191,10 @@ function NotificationsPage() {
                     </button>
                   )}
                   <button
-                    onClick={() => deleteNotif.mutate(n.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteNotif.mutate(n.id);
+                    }}
                     className="p-2 rounded-full text-muted-foreground hover:text-coral hover:bg-muted group-hover:opacity-100 opacity-0 transition-opacity"
                     title="Eliminar notificación"
                   >

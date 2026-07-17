@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import type { Database } from "@/integrations/supabase/types";
 import { toast } from "sonner";
 import {
@@ -60,8 +60,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+type MovementsSearch = {
+  transactionId?: string;
+};
+
 export const Route = createFileRoute("/_authenticated/movements")({
   component: MovementsPage,
+  validateSearch: (search: Record<string, unknown>): MovementsSearch => {
+    return {
+      transactionId: typeof search.transactionId === "string" ? search.transactionId : undefined,
+    };
+  },
 });
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -223,6 +232,7 @@ function MovementsPage() {
 
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+  const { transactionId } = Route.useSearch();
 
   const parseISO = (str: string) => {
     if (!str) return new Date(NaN);
@@ -463,6 +473,30 @@ function MovementsPage() {
   }, [filteredTransactions, currentPage]);
 
   const totalPages = Math.ceil(filteredTransactions.length / itemsPerPage) || 1;
+
+  // If transactionId is provided in search params, find it and jump to its page
+  useEffect(() => {
+    if (transactionId && filteredTransactions.length > 0) {
+      const idx = filteredTransactions.findIndex((tx) => tx.id === transactionId);
+      if (idx !== -1) {
+        const page = Math.floor(idx / itemsPerPage) + 1;
+        setCurrentPage(page);
+      }
+    }
+  }, [transactionId, filteredTransactions]);
+
+  // Scroll to focused transaction
+  useEffect(() => {
+    if (transactionId && paginatedTransactions.length > 0) {
+      const element = document.getElementById(`transaction-${transactionId}`);
+      if (element) {
+        const timer = setTimeout(() => {
+          element.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 100);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [transactionId, paginatedTransactions]);
 
   const handleSort = (field: "date" | "amount") => {
     if (sortField === field) {
@@ -1070,7 +1104,15 @@ function MovementsPage() {
               </TableHeader>
               <TableBody className="divide-y divide-[#E4E0F5]/20">
                 {paginatedTransactions.map((tx) => (
-                  <TableRow key={tx.id} className="hover:bg-muted/10 transition-colors">
+                  <TableRow
+                    id={`transaction-${tx.id}`}
+                    key={tx.id}
+                    className={`hover:bg-muted/10 transition-colors ${
+                      transactionId === tx.id
+                        ? "bg-[#7C6FE0]/15 hover:bg-[#7C6FE0]/20 ring-2 ring-[#7C6FE0]/25 shadow-sm"
+                        : ""
+                    }`}
+                  >
                     {/* Fecha */}
                     <TableCell className="text-xs font-semibold text-foreground tabular whitespace-nowrap">
                       {formatDateOnly(tx.date)}
@@ -1430,7 +1472,7 @@ function MovementsPage() {
 
       {/* EXCEL IMPORT PREVIEW DIALOG */}
       <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
-        <DialogContent className="max-w-4xl rounded-3xl p-6 bg-white dark:bg-card border border-[#E4E0F5] dark:border-hairline">
+        <DialogContent className="w-[90vw] max-w-[1300px] rounded-3xl p-6 bg-white dark:bg-card border border-[#E4E0F5] dark:border-hairline">
           <DialogHeader>
             <DialogTitle className="font-serif text-lg font-bold text-foreground">
               Confirmar Importación de Excel
@@ -1441,13 +1483,13 @@ function MovementsPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
-            <div className="border border-[#E4E0F5] dark:border-hairline rounded-2xl overflow-hidden">
-              <div className="max-h-[350px] overflow-y-auto">
-                <Table>
-                  <TableHeader className="bg-muted/45 sticky top-0 z-10">
-                    <TableRow>
-                      <TableHead className="w-12 text-center">
+          <div className="space-y-4 w-full min-w-0">
+            <div className="border border-[#E4E0F5] dark:border-hairline rounded-2xl overflow-hidden w-full">
+              <div className="max-h-[350px] overflow-auto">
+                <table className="w-full min-w-[1350px] caption-bottom text-sm border-collapse">
+                  <TableHeader className="sticky top-0 z-20">
+                    <TableRow className="hover:bg-transparent border-b border-[#E4E0F5] dark:border-hairline">
+                      <TableHead className="w-12 pl-4 text-left bg-slate-100 dark:bg-card sticky top-0 z-20">
                         <Checkbox
                           checked={
                             previewItems.length > 0 && previewItems.every((item) => item.selected)
@@ -1456,32 +1498,32 @@ function MovementsPage() {
                           aria-label="Seleccionar todos"
                         />
                       </TableHead>
-                      <TableHead className="w-28 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      <TableHead className="w-28 text-[10px] font-bold uppercase tracking-wider text-muted-foreground whitespace-nowrap bg-slate-100 dark:bg-card sticky top-0 z-20">
                         Fecha
                       </TableHead>
-                      <TableHead className="w-24 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      <TableHead className="w-24 text-[10px] font-bold uppercase tracking-wider text-muted-foreground whitespace-nowrap bg-slate-100 dark:bg-card sticky top-0 z-20">
                         Hora
                       </TableHead>
-                      <TableHead className="w-24 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      <TableHead className="w-24 text-[10px] font-bold uppercase tracking-wider text-muted-foreground whitespace-nowrap bg-slate-100 dark:bg-card sticky top-0 z-20">
                         Tipo
                       </TableHead>
-                      <TableHead className="w-28 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      <TableHead className="w-28 text-[10px] font-bold uppercase tracking-wider text-muted-foreground whitespace-nowrap bg-slate-100 dark:bg-card sticky top-0 z-20">
                         Categoría
                       </TableHead>
-                      <TableHead className="w-28 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      <TableHead className="w-28 text-[10px] font-bold uppercase tracking-wider text-muted-foreground whitespace-nowrap bg-slate-100 dark:bg-card sticky top-0 z-20">
                         Estado
                       </TableHead>
-                      <TableHead className="w-36 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      <TableHead className="w-44 text-[10px] font-bold uppercase tracking-wider text-muted-foreground whitespace-nowrap bg-slate-100 dark:bg-card sticky top-0 z-20">
                         Comercio
                       </TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                        Descripción
-                      </TableHead>
-                      <TableHead className="w-28 text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-right">
+                      <TableHead className="w-28 text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-right whitespace-nowrap bg-slate-100 dark:bg-card sticky top-0 z-20">
                         Monto
                       </TableHead>
-                      <TableHead className="w-32 text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-center">
+                      <TableHead className="w-32 text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-center whitespace-nowrap bg-slate-100 dark:bg-card sticky top-0 z-20">
                         Alerta
+                      </TableHead>
+                      <TableHead className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground whitespace-nowrap bg-slate-100 dark:bg-card sticky top-0 z-20">
+                        Descripción
                       </TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1496,7 +1538,7 @@ function MovementsPage() {
                         }`}
                       >
                         {/* Checkbox */}
-                        <TableCell className="text-center">
+                        <TableCell className="pl-4 text-left">
                           <Checkbox
                             checked={item.selected}
                             onCheckedChange={() => handleToggleSelectItem(idx)}
@@ -1515,11 +1557,11 @@ function MovementsPage() {
                         </TableCell>
 
                         {/* Tipo */}
-                        <TableCell className="text-xs font-semibold">
+                        <TableCell className="text-xs font-semibold whitespace-nowrap">
                           {item.type === "income" ? (
-                            <span className="text-[#7C6FE0] dark:text-[#B9A9F5]">Ingreso</span>
+                            <span className="text-[#7C6FE0] dark:text-[#B9A9F5] whitespace-nowrap">Ingreso</span>
                           ) : (
-                            <span className="text-coral">Gasto</span>
+                            <span className="text-coral whitespace-nowrap">Gasto</span>
                           )}
                         </TableCell>
 
@@ -1530,26 +1572,19 @@ function MovementsPage() {
                         </TableCell>
 
                         {/* Estado */}
-                        <TableCell className="text-xs capitalize">
+                        <TableCell className="text-xs capitalize whitespace-nowrap">
                           {item.status === "confirmed" ? "Confirmado" : "Pendiente"}
                         </TableCell>
 
                         {/* Comercio */}
-                        <TableCell className="text-xs max-w-[120px] truncate font-medium text-foreground">
+                        <TableCell className="text-xs max-w-[150px] truncate font-medium text-foreground whitespace-nowrap">
                           {item.merchant || (
                             <span className="text-muted-foreground/60 italic">-</span>
                           )}
                         </TableCell>
 
-                        {/* Descripción */}
-                        <TableCell className="text-xs max-w-[180px] truncate text-muted-foreground">
-                          {item.description || (
-                            <span className="text-muted-foreground/45 italic">Sin descripción</span>
-                          )}
-                        </TableCell>
-
                         {/* Monto */}
-                        <TableCell className="text-right text-xs font-bold font-mono">
+                        <TableCell className="text-right text-xs font-bold font-mono whitespace-nowrap">
                           <span
                             className={item.type === "income" ? "text-[#7C6FE0]" : "text-coral"}
                           >
@@ -1560,20 +1595,27 @@ function MovementsPage() {
                         {/* Alerta Duplicado */}
                         <TableCell className="text-center whitespace-nowrap">
                           {item.isDuplicate ? (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-coral/10 text-coral dark:bg-coral/15 dark:text-coral">
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-coral/10 text-coral dark:bg-coral/15 dark:text-coral whitespace-nowrap">
                               <AlertCircle className="w-3.5 h-3.5 text-coral animate-pulse" />
                               Duplicado
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#7C6FE0]/10 text-[#4C3A8C] dark:bg-[#7C6FE0]/15 dark:text-[#B9A9F5]">
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#7C6FE0]/10 text-[#4C3A8C] dark:bg-[#7C6FE0]/15 dark:text-[#B9A9F5] whitespace-nowrap">
                               Nuevo
                             </span>
+                          )}
+                        </TableCell>
+
+                        {/* Descripción */}
+                        <TableCell className="text-xs max-w-[120px] truncate text-muted-foreground whitespace-nowrap">
+                          {item.description || (
+                            <span className="text-muted-foreground/45 italic">Sin descripción</span>
                           )}
                         </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
-                </Table>
+                </table>
               </div>
             </div>
 

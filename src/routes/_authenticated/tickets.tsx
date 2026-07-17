@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -20,8 +20,17 @@ import {
   type TicketStatus,
 } from "@/lib/tickets/ticket-workflow";
 
+type TicketsSearch = {
+  ticketId?: string;
+};
+
 export const Route = createFileRoute("/_authenticated/tickets")({
   component: TicketsPage,
+  validateSearch: (search: Record<string, unknown>): TicketsSearch => {
+    return {
+      ticketId: typeof search.ticketId === "string" ? search.ticketId : undefined,
+    };
+  },
 });
 
 type ConversationEntry = {
@@ -84,6 +93,7 @@ function TicketsPage() {
   const updateStatus = useServerFn(updateTicketStatus);
   const [filter, setFilter] = useState<"open" | "resolved" | "all">("open");
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const { ticketId } = Route.useSearch();
 
   const query = useQuery({
     queryKey: ["tickets"],
@@ -129,6 +139,33 @@ function TicketsPage() {
 
     return tickets.filter((ticket) => ticket.status !== "RESOLVED");
   }, [canManage, filter, query.data?.tickets]);
+
+  // Auto-adjust filter if ticketId is specified and is resolved
+  useEffect(() => {
+    if (ticketId && query.data?.tickets) {
+      const target = (query.data.tickets as TicketRow[]).find((t) => t.id === ticketId);
+      if (target) {
+        if (target.status === "RESOLVED") {
+          setFilter("resolved");
+        } else {
+          setFilter("open");
+        }
+      }
+    }
+  }, [ticketId, query.data?.tickets]);
+
+  // Scroll to ticket
+  useEffect(() => {
+    if (ticketId && visibleTickets.length > 0) {
+      const element = document.getElementById(`ticket-${ticketId}`);
+      if (element) {
+        const timer = setTimeout(() => {
+          element.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 100);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [ticketId, visibleTickets]);
 
   return (
     <div className="mx-auto max-w-4xl w-full px-4 py-8 space-y-6">
@@ -210,7 +247,15 @@ function TicketsPage() {
               : null;
 
           return (
-            <article key={ticket.id} className="rounded-xl border bg-card p-4 shadow-sm space-y-4">
+            <article
+              id={`ticket-${ticket.id}`}
+              key={ticket.id}
+              className={`rounded-xl border bg-card p-4 shadow-sm space-y-4 transition-all duration-500 ${
+                ticketId === ticket.id
+                  ? "border-[#7C6FE0] ring-2 ring-[#7C6FE0]/20 shadow-md scale-[1.01]"
+                  : ""
+              }`}
+            >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
@@ -269,7 +314,10 @@ function TicketsPage() {
                 </div>
               )}
 
-              <details className="group rounded-md border bg-background/60 p-3">
+              <details
+                open={ticketId === ticket.id}
+                className="group rounded-md border bg-background/60 p-3"
+              >
                 <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-medium">
                   Ver contexto e historial
                   <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />

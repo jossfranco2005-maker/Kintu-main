@@ -3,12 +3,24 @@ import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { listBudgets, upsertBudget, deleteBudget } from "@/lib/finance.functions";
 import { CATEGORIES } from "@/lib/finance/categorize";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { Plus, AlertTriangle, X, Pencil, Trash2 } from "lucide-react";
 
+type BudgetsSearch = {
+  highlightCategory?: string;
+  editBudgetId?: string;
+};
+
 export const Route = createFileRoute("/_authenticated/budgets")({
   component: BudgetsPage,
+  validateSearch: (search: Record<string, unknown>): BudgetsSearch => {
+    return {
+      highlightCategory:
+        typeof search.highlightCategory === "string" ? search.highlightCategory : undefined,
+      editBudgetId: typeof search.editBudgetId === "string" ? search.editBudgetId : undefined,
+    };
+  },
 });
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -78,6 +90,7 @@ function BudgetsPage() {
   const upsert = useServerFn(upsertBudget);
   const del = useServerFn(deleteBudget);
   const q = useQuery({ queryKey: ["finance", "budgets"], queryFn: () => list() });
+  const { highlightCategory, editBudgetId } = Route.useSearch();
 
   // "editingId" no-nulo => el mini form está editando un presupuesto
   // existente en vez de crear uno nuevo. La categoría queda bloqueada
@@ -164,6 +177,28 @@ function BudgetsPage() {
   }
 
   const budgets = q.data?.budgets || [];
+
+  // Auto-edit or highlight from search params
+  useEffect(() => {
+    if (editBudgetId && budgets.length > 0) {
+      const target = (budgets as BudgetRow[]).find((b) => b.id === editBudgetId);
+      if (target && editingId !== editBudgetId) {
+        startEdit(target);
+      }
+    }
+  }, [editBudgetId, budgets]);
+
+  useEffect(() => {
+    if (highlightCategory) {
+      const element = document.getElementById(`budget-card-${highlightCategory}`);
+      if (element) {
+        const timer = setTimeout(() => {
+          element.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 100);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [highlightCategory, budgets]);
 
   const sortedBudgets = [...budgets].sort((a, b) => {
     const pctA = a.spent / a.limit_amount;
@@ -377,9 +412,10 @@ function BudgetsPage() {
                 {/* PRIMARY HIGHLIGHTED BUDGET */}
                 {primaryBudget && (
                   <div
+                    id={`budget-card-${primaryBudget.category}`}
                     className={`relative rounded-2xl border p-5 space-y-4 transition-all ${
-                      editingId === primaryBudget.id
-                        ? "border-[#7C6FE0] bg-[#7C6FE0]/5 ring-2 ring-[#7C6FE0]/20"
+                      editingId === primaryBudget.id || highlightCategory === primaryBudget.category
+                        ? "border-[#7C6FE0] bg-[#7C6FE0]/5 ring-2 ring-[#7C6FE0]/20 shadow-md scale-[1.01]"
                         : "border-[#E4E0F5] dark:border-hairline bg-[#F8F7FD] dark:bg-card/50"
                     }`}
                   >
@@ -470,12 +506,14 @@ function BudgetsPage() {
                       const over = b.state === "exceeded";
                       const warning = b.state === "warning";
                       const isEditing = editingId === b.id;
+                      const isHighlighted = isEditing || highlightCategory === b.category;
                       return (
                         <div
+                          id={`budget-card-${b.category}`}
                           key={b.id}
                           className={`relative rounded-2xl border p-4 flex flex-col justify-between min-h-[110px] min-w-0 space-y-3 transition-all ${
-                            isEditing
-                              ? "border-[#7C6FE0] bg-[#7C6FE0]/5 ring-2 ring-[#7C6FE0]/20"
+                            isHighlighted
+                              ? "border-[#7C6FE0] bg-[#7C6FE0]/5 ring-2 ring-[#7C6FE0]/20 shadow-md scale-[1.01]"
                               : "border-[#E4E0F5] dark:border-hairline bg-[#F8F7FD] dark:bg-card/30"
                           }`}
                         >
