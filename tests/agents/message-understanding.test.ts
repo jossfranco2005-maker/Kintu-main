@@ -6,6 +6,8 @@ import {
   detectsMultipleOperations,
   isDraftCorrectionMessage,
   isExplicitCancellationMessage,
+  isExplicitConfirmationMessage,
+  hasExplicitBudgetMutationAction,
 } from "@/lib/agents/message-understanding";
 
 function analyze(text: string) {
@@ -110,6 +112,18 @@ describe("message understanding rules", () => {
   });
 
   it.each([
+    "olvídalo, cancela ese gasto",
+    "ya no quiero registrar eso",
+    "descarta la transacción anterior",
+  ])("detecta una cancelación natural compuesta: %s", (text) =>
+    expect(isExplicitCancellationMessage(text)).toBe(true),
+  );
+
+  it.each(["sí, confirma", "confirma otra vez"])("detecta confirmación explícita: %s", (text) =>
+    expect(isExplicitConfirmationMessage(text)).toBe(true),
+  );
+
+  it.each([
     "Analiza mis gastos",
     "¿Qué patrón ves en mis finanzas?",
     "¿En qué gasto más?",
@@ -121,4 +135,14 @@ describe("message understanding rules", () => {
   it("deja la charla general fuera de transacciones", () => {
     expect(analyze("Hola")).toMatchObject({ intent: "smalltalk" });
   });
+
+  it.each(["Crea un presupuesto de 200", "Ajusta el límite de comida"])(
+    "valida una acción explícita de presupuesto: %s",
+    (text) => expect(hasExplicitBudgetMutationAction(text)).toBe(true),
+  );
+
+  it.each(["No entiendo mi presupuesto", "Explícame el límite de comida"])(
+    "no confunde una consulta con mutación: %s",
+    (text) => expect(hasExplicitBudgetMutationAction(text)).toBe(false),
+  );
 });

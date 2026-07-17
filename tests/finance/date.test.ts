@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   currentMonthRangeInEcuador,
+  formatIsoDateInSpanish,
+  inspectTransactionDateIssue,
   isValidIsoDate,
   monthRangeForIsoDate,
   resolveTransactionDate,
@@ -22,6 +24,48 @@ describe("date helpers", () => {
 
   it("conserva una fecha ISO válida extraída", () => {
     expect(resolveTransactionDate("2026-06-30", "pagué ese día", "2026-07-11")).toBe("2026-06-30");
+  });
+
+  it.each([
+    ["06/07/2026", "2026-07-06"],
+    ["6/7/2026", "2026-07-06"],
+    ["06-07-2026", "2026-07-06"],
+    ["6 de julio de 2026", "2026-07-06"],
+    ["el 6 de julio", "2026-07-06"],
+    ["el día 6", "2026-07-06"],
+    ["día 6", "2026-07-06"],
+  ])("resuelve el formato local %s", (text, expected) => {
+    expect(resolveTransactionDate(null, text, "2026-07-17")).toBe(expected);
+  });
+
+  it("no asigna silenciosamente el año anterior si la fecha aún sería futura", () => {
+    expect(resolveTransactionDate(null, "el 20 de diciembre", "2026-07-17")).toBeNull();
+  });
+
+  it("rechaza fechas locales inexistentes", () => {
+    expect(resolveTransactionDate(null, "31/02/2026", "2026-07-17")).toBeNull();
+  });
+
+  it("expone una aclaración sin perder la fecha sugerida", () => {
+    expect(inspectTransactionDateIssue("Gasté el 20 de julio", "2026-07-17")).toEqual({
+      kind: "future_without_year",
+      mentionedDate: "2026-07-20",
+      suggestedDate: "2025-07-20",
+    });
+  });
+
+  it("detecta una fecha futura con año explícito", () => {
+    expect(
+      inspectTransactionDateIssue("Compré algo el 20 de julio de 2026", "2026-07-17"),
+    ).toMatchObject({ kind: "future_explicit", mentionedDate: "2026-07-20" });
+  });
+
+  it("no acepta una fecha futura extraída por el modelo", () => {
+    expect(resolveTransactionDate("2026-07-20", "Compré algo", "2026-07-17")).toBeNull();
+  });
+
+  it("presenta fechas ISO en español natural", () => {
+    expect(formatIsoDateInSpanish("2025-07-20")).toBe("20 de julio de 2025");
   });
 
   it("construye rangos mensuales cerrados por la izquierda y abiertos por la derecha", () => {

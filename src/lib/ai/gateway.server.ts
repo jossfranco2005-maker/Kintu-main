@@ -1,6 +1,7 @@
 import { createGroq, type GroqLanguageModelOptions } from "@ai-sdk/groq";
 
 export const DEFAULT_MODEL = process.env.AI_MODEL ?? "llama-3.3-70b-versatile";
+export const STRUCTURED_MODEL = process.env.AI_STRUCTURED_MODEL ?? "openai/gpt-oss-120b";
 
 const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60_000;
 const INVALID_KEY_COOLDOWN_MS = 60 * 60_000;
@@ -219,5 +220,6 @@ export const GROQ_JSON_OPTIONS = {
 export const GROQ_STRUCTURED_OPTIONS = {
   groq: {
     structuredOutputs: true,
+    strictJsonSchema: true,
   } satisfies GroqLanguageModelOptions,
 };

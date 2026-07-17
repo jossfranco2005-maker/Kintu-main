@@ -13,14 +13,36 @@ import {
 import { classifySensitivity, detectsDistress } from "@/lib/finance/sensitivity";
 import type { FinancialInsightSnapshot, InsightBudget } from "@/lib/finance/insights";
 
-const SupportAnswerSchema = z.object({
+export const SupportAnswerSchema = z.object({
   can_answer: z.boolean(),
   answer: z.string().nullable(),
   used_article_ids: z.array(z.string()).max(3),
   missing_reason: z.string().nullable(),
 });
 
+export const SupportSituationSchema = z.object({
+  state: z.enum([
+    "emotion_only",
+    "concrete_sensitive_incident",
+    "explicit_human_request",
+    "general_support",
+  ]),
+  category: z
+    .enum(["fraude", "reclamo", "humano", "cargo_desconocido", "acceso_cuenta"])
+    .nullable(),
+  priority: z.enum(["high", "medium", "low"]).nullable(),
+  reason: z.string().max(240),
+});
+
 type SupportAnswer = z.infer<typeof SupportAnswerSchema>;
+
+function looksLikeStandaloneEmotionFallback(text: string): boolean {
+  const normalized = normalizeSupportRoutingText(text);
+  if (/\b(?:no estoy|mi hermano|mi hermana|mi pareja|mi amigo|mi amiga)\b/.test(normalized)) {
+    return false;
+  }
+  return /\b(?:enojad|frustrad|furios|hart|molest|pesim|insatisfech)/.test(normalized);
+}
 
 // Recordatorio consistente en todo el flujo de soporte: ninguna respuesta
 // automática (ni resumen de tu estado, ni pauta general) reemplaza a
@@ -135,6 +157,18 @@ function parseSupportChoice(text: string): "ticket" | "recommendation" | null {
   return null;
 }
 
+export function isCompatibleSupportChoice(text: string): boolean {
+  const normalized = normalizeSupportRoutingText(text);
+  const words = normalized.split(/\s+/).filter(Boolean);
+  if (
+    words.length > 9 ||
+    /\b(?:olvida|cancela|ya no|registra|gaste|gasto|recibi|presupuesto)\b/.test(normalized)
+  ) {
+    return false;
+  }
+  return parseSupportChoice(text) !== null;
+}
+
 // Distingue "preguntas sobre mi propio estado financiero" (donde SÍ tiene
 // sentido llamar al agente financiero con datos reales del usuario) de
 // cualquier otro tema (inversión en general, procedimientos, dudas
@@ -161,7 +195,7 @@ function buildGeneralGuidanceReply(articles: KnowledgeArticle[]): string {
   return `Esto es una pauta general, no una recomendación personalizada:\n\n${body}`;
 }
 
-const GeneralEducationSchema = z.object({
+export const GeneralEducationSchema = z.object({
   answer: z.string(),
 });
 
@@ -181,6 +215,7 @@ async function generateGeneralEducationReply(
       : "";
 
     const generated = await generateStructured({
+      name: "general-education",
       schema: GeneralEducationSchema,
       system:
         `${SYSTEM_BASE}\n\n` +
@@ -477,12 +512,58 @@ export async function handleSupportFlow(input: OrchestratorInput): Promise<Orche
     return createHumanReviewTicket(input, sensitivity);
   }
 
-  // Único caso vetado de verdad: pedir una recomendación de inversión
-  // específica y personalizada. Nada de bifurcación acá — directo a caso.
-  // Un interés general en el tema ("quiero invertir pero no sé por dónde
-  // empezar") NO cae acá, sigue el flujo normal de abajo.
+  // La asesoría de inversión específica conserva precedencia determinista
+  // sobre cualquier interpretación conversacional.
   if (requestsSpecificInvestmentAdvice(text)) {
     return createInvestmentAdviceTicket(input);
+  }
+
+  try {
+    const situation = await generateStructured({
+      name: "support-situation",
+      schema: SupportSituationSchema,
+      system: SYSTEM_BASE,
+      prompt: `Distingue la situación de soporte del mensaje.
+
+- emotion_only: expresa enojo, frustración o insatisfacción, pero no describe un incidente concreto ni pide una persona.
+- concrete_sensitive_incident: describe fraude, cargo no reconocido, cobro duplicado, acceso comprometido o transferencia problemática.
+- explicit_human_request: pide inequívocamente hablar con una persona o abrir un caso.
+- general_support: cualquier otra consulta de soporte.
+
+No conviertas la emoción aislada ni emociones de terceros en un incidente del usuario.
+Mensaje: ${text}`,
+    });
+
+    if (situation.state === "emotion_only") {
+      return {
+        reply:
+          "Siento que estés pasando por eso. ¿Qué ocurrió? Cuéntame un poco para poder ayudarte.",
+      };
+    }
+
+    if (
+      situation.state === "concrete_sensitive_incident" ||
+      situation.state === "explicit_human_request"
+    ) {
+      return createHumanReviewTicket(input, {
+        category:
+          situation.state === "explicit_human_request"
+            ? "humano"
+            : (situation.category ?? "reclamo"),
+        priority:
+          situation.priority ??
+          (situation.state === "concrete_sensitive_incident" ? "high" : "medium"),
+        reason: situation.reason,
+      });
+    }
+  } catch (error) {
+    console.error("[support-flow] Error understanding support situation:", error);
+    if (looksLikeStandaloneEmotionFallback(text)) {
+      return {
+        reply:
+          "Siento que estés pasando por eso. ¿Qué ocurrió? Cuéntame un poco para poder ayudarte.",
+      };
+    }
   }
 
   const { data, error } = await supabase
@@ -506,6 +587,7 @@ export async function handleSupportFlow(input: OrchestratorInput): Promise<Orche
 
   try {
     const generated = await generateStructured({
+      name: "support-answer",
       schema: SupportAnswerSchema,
       system: `${SYSTEM_BASE}\n\nRegla de seguridad adicional: responde únicamente con hechos explícitos de los artículos entregados. No completes vacíos, no supongas procedimientos y no recomiendes inversiones personalizadas.`,
       prompt: `Pregunta del cliente:

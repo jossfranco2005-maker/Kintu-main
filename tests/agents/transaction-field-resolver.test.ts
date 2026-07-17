@@ -132,6 +132,36 @@ describe("typed transaction field resolver", () => {
     });
   });
 
+  it.each([
+    [
+      "Hoy recibí 1000 dólares de sueldo de Empresa Demo",
+      { category: "sueldo", merchant: "Empresa Demo" },
+    ],
+    [
+      "Hoy recibí 200 dólares por un trabajo freelance de Carlos",
+      { category: "freelance", merchant: "Carlos" },
+    ],
+  ])("conserva categoría y origen de ingresos: %s", (text, expected) => {
+    const result = resolveTransactionFields({
+      text,
+      type: "income",
+      llmPatch: { category: expected.category, merchant: expected.merchant },
+    });
+    expect(result).toMatchObject(expected);
+  });
+
+  it("acepta el comercio aportado antes de la fecha", () => {
+    const result = resolveTransactionFields({
+      text: "en KFC",
+      type: "expense",
+      currentDraft: { ...baseDraft, category: "comida" },
+      missingFields: ["date", "merchant"],
+      llmPatch: { merchant: "KFC" },
+    });
+    expect(result.merchant).toBe("KFC");
+    expect(result.date).toBeNull();
+  });
+
   it("conserva los campos existentes cuando el LLM devuelve null", () => {
     const complete: ExpenseDraft = {
       ...baseDraft,

@@ -23,19 +23,26 @@ import {
   detectUserBudgetCategory,
   normalizeNewUserCategory,
 } from "@/lib/finance/user-category.server";
-import { resolveTransactionDate, todayInEcuador } from "@/lib/finance/date";
+import {
+  formatIsoDateInSpanish,
+  inspectTransactionDateIssue,
+  resolveTransactionDate,
+  todayInEcuador,
+} from "@/lib/finance/date";
 import { detectsDistress } from "@/lib/finance/sensitivity";
 
 export type ExpenseFlowInput = {
   text: string;
   transactionType?: "income" | "expense" | null;
   userCategories?: Set<string>;
+  today?: string;
 };
 
 export type CompleteExpenseFlowInput = {
   text: string;
   currentDraft: ExpenseDraft;
   userCategories?: Set<string>;
+  history?: Array<{ role: string; content: string }>;
 };
 
 export type ReviseExpenseFlowInput = CompleteExpenseFlowInput;
@@ -48,7 +55,7 @@ export type ExpenseFlowResult = {
   };
 };
 
-const ExpenseFollowUpSchema = z.object({
+export const ExpenseFollowUpSchema = z.object({
   amount: z.number().positive().nullable(),
   date: z.string().nullable(),
   category: z.string().nullable(),
@@ -56,7 +63,7 @@ const ExpenseFollowUpSchema = z.object({
   description: z.string().nullable(),
 });
 
-const ExpenseCorrectionSchema = z.object({
+export const ExpenseCorrectionSchema = z.object({
   type: z.enum(["income", "expense"]).nullable(),
   amount: z.number().positive().nullable(),
   date: z.string().nullable(),
@@ -110,18 +117,24 @@ function buildExpenseFlowResult(
  * Inicia un nuevo ingreso o gasto desde un mensaje completo.
  */
 export async function handleExpenseFlow(input: ExpenseFlowInput): Promise<ExpenseFlowResult> {
-  const { text, transactionType, userCategories = new Set<string>() } = input;
+  const {
+    text,
+    transactionType,
+    userCategories = new Set<string>(),
+    today = todayInEcuador(),
+  } = input;
   let extracted: z.infer<typeof ExpenseExtractSchema> | null = null;
 
   try {
     extracted = await generateStructured({
+      name: "transaction-extraction",
       schema: ExpenseExtractSchema,
       system: SYSTEM_BASE,
       prompt: `
 ${EXPENSE_EXTRACT_PROMPT}
 
 Fecha actual de Ecuador:
-${todayInEcuador()}
+${today}
 
 Tipo detectado previamente por el clasificador:
 ${transactionType ?? "desconocido"}
@@ -145,7 +158,31 @@ ${text}
     type,
     llmPatch: extracted ?? undefined,
     userCategories,
+    today,
   });
+  const dateIssue = inspectTransactionDateIssue(text, today);
+  if (dateIssue?.kind === "future_without_year" && dateIssue.suggestedDate) {
+    const result = buildExpenseFlowResult(draft, userCategories);
+    return {
+      ...result,
+      reply:
+        `El ${formatIsoDateInSpanish(dateIssue.mentionedDate!)} todavía no ha ocurrido. ` +
+        `Como indicas que la transacción ya se realizó, ¿te refieres al ${formatIsoDateInSpanish(dateIssue.suggestedDate)}?`,
+    };
+  }
+  if (dateIssue?.kind === "future_explicit") {
+    const result = buildExpenseFlowResult(draft, userCategories);
+    return {
+      ...result,
+      reply:
+        `La fecha ${formatIsoDateInSpanish(dateIssue.mentionedDate!)} todavía no ha ocurrido, ` +
+        "pero el mensaje describe una transacción realizada. Confirma o corrige la fecha.",
+    };
+  }
+  if (dateIssue?.kind === "invalid") {
+    const result = buildExpenseFlowResult(draft, userCategories);
+    return { ...result, reply: "Esa fecha no existe. Indícame una fecha válida." };
+  }
   const empathy = detectsDistress(text) ? "Entiendo. Lo registramos con calma. " : "";
 
   return buildExpenseFlowResult(draft, userCategories, empathy);
@@ -157,7 +194,7 @@ ${text}
 export async function completeExpenseFlow(
   input: CompleteExpenseFlowInput,
 ): Promise<ExpenseFlowResult> {
-  const { text, currentDraft, userCategories = new Set<string>() } = input;
+  const { text, currentDraft, userCategories = new Set<string>(), history = [] } = input;
   const currentNeeds = getMissingExpenseFields(currentDraft);
 
   let patch: TransactionFieldPatch = {
@@ -170,6 +207,7 @@ export async function completeExpenseFlow(
 
   try {
     patch = await generateStructured({
+      name: "transaction-follow-up",
       schema: ExpenseFollowUpSchema,
       system: SYSTEM_BASE,
       prompt: `
@@ -184,6 +222,9 @@ ${JSON.stringify(currentNeeds)}
 RESPUESTA DEL USUARIO:
 ${text}
 
+HISTORIAL RECIENTE:
+${history.map((message) => `${message.role}: ${message.content}`).join("\n") || "(vacío)"}
+
 Extrae únicamente los datos que aporta esta respuesta para completar los campos faltantes.
 
 Ejemplos:
@@ -193,6 +234,7 @@ Ejemplos:
 - "transporte" aporta category="transporte"
 - una categoría nueva como "Mascotas" puede ir en category
 - "ayer en KFC" aporta date y merchant
+- Si el turno anterior pidió confirmar el año de una fecha y el usuario lo confirma, devuelve la fecha ISO completa.
 
 No inventes valores. Usa null cuando la respuesta no aporte ese dato.
       `.trim(),
@@ -229,6 +271,7 @@ export async function reviseExpenseFlow(input: ReviseExpenseFlowInput): Promise<
   if (!hasDeterministicCorrection) {
     try {
       const extracted = await generateStructured({
+        name: "transaction-correction",
         schema: ExpenseCorrectionSchema,
         system: SYSTEM_BASE,
         prompt: `Existe una transacción pendiente y el usuario quiere corregirla.

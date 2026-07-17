@@ -1,12 +1,17 @@
 import { generateText, Output } from "ai";
 import { z } from "zod";
 
-import { GROQ_JSON_OPTIONS, withGroqKeyFailover } from "@/lib/ai/gateway.server";
+import {
+  GROQ_STRUCTURED_OPTIONS,
+  STRUCTURED_MODEL,
+  withGroqKeyFailover,
+} from "@/lib/ai/gateway.server";
 
 type StructuredGenerationInput<Schema extends z.ZodTypeAny> = {
   schema: Schema;
   prompt: string;
   system?: string;
+  name?: string;
 };
 
 /**
@@ -18,20 +23,22 @@ export async function generateStructured<Schema extends z.ZodTypeAny>(
 ): Promise<z.infer<Schema>> {
   const { schema, prompt, system } = input;
 
-  const { output } = await withGroqKeyFailover((model) =>
-    generateText({
-      model,
-      maxRetries: 0,
+  try {
+    const { output } = await withGroqKeyFailover(
+      (model) =>
+        generateText({
+          model,
+          maxRetries: 0,
 
-      providerOptions: GROQ_JSON_OPTIONS,
+          providerOptions: GROQ_STRUCTURED_OPTIONS,
 
-      output: Output.object({
-        schema,
-      }),
+          output: Output.object({
+            schema,
+          }),
 
-      system,
+          system,
 
-      prompt: `
+          prompt: `
 ${prompt}
 
 IMPORTANTE:
@@ -39,8 +46,37 @@ Responde exclusivamente con un objeto JSON válido.
 No incluyas Markdown, bloques de código ni explicaciones
 fuera del objeto JSON.
     `.trim(),
-    }),
-  );
+        }),
+      STRUCTURED_MODEL,
+    );
 
-  return output;
+    return schema.parse(output);
+  } catch (error) {
+    const errorName = error instanceof Error ? error.name : "UnknownError";
+    const errorRecord =
+      error && typeof error === "object" ? (error as Record<string, unknown>) : null;
+    const statusCode =
+      typeof errorRecord?.statusCode === "number" ? errorRecord.statusCode : undefined;
+    const detail =
+      process.env.NODE_ENV !== "production" && error instanceof Error
+        ? error.message.slice(0, 400)
+        : undefined;
+    const missingFields =
+      error instanceof z.ZodError
+        ? error.issues
+            .filter((issue) => issue.code === "invalid_type" && issue.received === "undefined")
+            .map((issue) => issue.path.join("."))
+            .filter(Boolean)
+            .slice(0, 12)
+        : [];
+    console.error("[structured-output] generation failed", {
+      agent: input.name ?? "unnamed",
+      model: STRUCTURED_MODEL,
+      errorType: errorName,
+      statusCode,
+      missingFields,
+      detail,
+    });
+    throw new Error(`Structured output failed for ${input.name ?? "unnamed"}.`);
+  }
 }

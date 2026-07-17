@@ -48,7 +48,7 @@ const RULES: Array<{ re: RegExp; hit: SensitivityHit }> = [
     },
   },
   {
-    re: /\b(quiero hablar con (una|un) (persona|humano|agente|asesor)|atencion humana|un humano|abrir un caso|crear un ticket)\b/i,
+    re: /\b(?:quiero|necesito|prefiero|pasame|comunicame|ponme)\b.{0,35}\b(?:persona|humano|agente|asesor|alguien|soporte humano|equipo de soporte)\b|\b(?:atencion humana|abrir un caso|crear un ticket)\b/i,
     hit: {
       category: "humano",
       priority: "medium",
@@ -61,22 +61,6 @@ const RULES: Array<{ re: RegExp; hit: SensitivityHit }> = [
       category: "regulatorio",
       priority: "high",
       reason: "Asunto regulatorio o reclamo formal",
-    },
-  },
-  {
-    re: /\b(reclamo|queja|inconforme|molesto|molesta)\b/i,
-    hit: {
-      category: "reclamo",
-      priority: "medium",
-      reason: "Expresión de reclamo o inconformidad",
-    },
-  },
-  {
-    re: /\b(enojad[oa]s?|enojadisim[oa]s?|enojar|enojo|furi[oa]s?|furia|rabia|hart[oa]s?|cabread[oa]s?|insatisfech[oa]s?|pesimo|porqueria|estupid[oa]|pendej[oa]|mierda|mierdas)\b/i,
-    hit: {
-      category: "reclamo",
-      priority: "high",
-      reason: "Expresión de enojo, frustración o lenguaje inadecuado",
     },
   },
   {

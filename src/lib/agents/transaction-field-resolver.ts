@@ -21,6 +21,7 @@ export type ResolveTransactionFieldsInput = {
   missingFields?: MissingExpenseField[];
   llmPatch?: TransactionFieldPatch;
   userCategories?: Set<string>;
+  today?: string;
 };
 
 function cleanText(value: string | null | undefined): string | null {
@@ -71,15 +72,22 @@ function stripTemporalSuffix(text: string): string {
     .trim();
 }
 
-function extractExplicitCategoryCandidate(text: string): string | null {
+function extractExplicitCategoryCandidate(
+  text: string,
+  allowPurposeCategory: boolean,
+): string | null {
   const explicit = text.match(
     /\bcategor[ií]a\s*(?:es|:)?\s+([\p{L}][\p{L}\s-]{1,38}?)(?=$|\s+(?:en|a|con|por)\b|[,.!?])/iu,
   )?.[1];
   if (explicit) return explicit.trim();
 
-  const purpose = text.match(/\bpara\s+([\p{L}-]{2,30})(?=$|\s+(?:en|a|con|por)\b|[,.!?])/iu)?.[1];
-  if (purpose && !/^(?:mi|mis|un|una|el|la|los|las)$/i.test(purpose)) {
-    return purpose.trim();
+  if (allowPurposeCategory) {
+    const purpose = text.match(
+      /\bpara\s+([\p{L}-]{2,30})(?=$|\s+(?:en|a|con|por)\b|[,.!?])/iu,
+    )?.[1];
+    if (purpose && !/^(?:mi|mis|un|una|el|la|los|las)$/i.test(purpose)) {
+      return purpose.trim();
+    }
   }
 
   // En frases como "gasté 20 en mascotas en Veterinaria Luna", el segmento
@@ -108,6 +116,7 @@ export function resolveCategoryCandidate(params: {
   expectingCategory?: boolean;
   allowNewCategory?: boolean;
   allowModelInference?: boolean;
+  allowPurposeCategory?: boolean;
 }): string | null {
   const {
     text,
@@ -116,6 +125,7 @@ export function resolveCategoryCandidate(params: {
     expectingCategory = false,
     allowNewCategory = false,
     allowModelInference = true,
+    allowPurposeCategory = true,
   } = params;
 
   // La evidencia literal del usuario tiene prioridad sobre una clasificación
@@ -127,7 +137,7 @@ export function resolveCategoryCandidate(params: {
   if (fixedFromText) return fixedFromText;
 
   if (allowNewCategory) {
-    const explicit = extractExplicitCategoryCandidate(text);
+    const explicit = extractExplicitCategoryCandidate(text, allowPurposeCategory);
     const standalone =
       expectingCategory && isStandaloneCategoryAnswer(text) ? cleanText(text) : null;
     const fromUserText = explicit ?? standalone;
@@ -203,6 +213,10 @@ function cleanMerchantCandidate(params: {
       "",
     )
     .replace(/^(?:fue\s+|era\s+)?(?:en|a|de|desde)\s+/i, "")
+    .replace(
+      /^(?:el\s+)?(?:comercio|origen)\s+(?:de\s+)?(?:la\s+)?(?:transacci[oó]n|operaci[oó]n|movimiento|gasto|ingreso)(?:\s+pendiente)?\s+(?:es|fue|era)\s+/i,
+      "",
+    )
     .replace(/^(?:comercio|tienda|local|establecimiento|lugar|origen)\s*[:-]?\s*/i, "")
     .replace(/\s+por\s+.+$/i, "")
     .trim();
@@ -237,6 +251,12 @@ function extractExpenseMerchant(text: string): string | null {
 function extractIncomeOrigin(text: string): string | null {
   const withoutDate = stripTemporalSuffix(text.replace(/[.!?]+$/g, "").trim());
 
+  const forRecipient = withoutDate.match(/\bpara\s+([\p{L}][\p{L}\s.'-]{1,60})$/iu)?.[1];
+  if (forRecipient) return forRecipient.trim();
+
+  const deSegments = withoutDate.split(/\bde\b/i).map((segment) => segment.trim());
+  if (deSegments.length >= 3 && deSegments.at(-1)) return deSegments.at(-1)!;
+
   const explicit = withoutDate.match(
     /\b(?:provino|vino|llego|llegó)\s+(?:de|desde)\s+(.+?)(?=\s+por\b|$)/i,
   )?.[1];
@@ -249,6 +269,18 @@ function extractIncomeOrigin(text: string): string | null {
   // cuando no se proporcionó una persona o empresa con "de/des­de".
   const reason = withoutDate.match(/\bpor\s+(.+)$/i)?.[1];
   return reason?.trim() ?? null;
+}
+
+function extractIncomeCategoryEvidence(text: string): string | null {
+  const purpose = text.match(
+    /\bpor\s+(?:un|una)?\s*(?:trabajo\s+)?([\p{L}-]{3,30})(?=\s+(?:que|de|para)\b|[,.!?]|$)/iu,
+  )?.[1];
+  if (purpose) return normalizeNewUserCategory(purpose);
+
+  const sourceKind = text.match(
+    /\bde\s+([\p{L}-]{3,30})\s+de\s+[\p{L}][\p{L}\s.'-]{1,60}(?=[,.!?]|$)/iu,
+  )?.[1];
+  return sourceKind ? normalizeNewUserCategory(sourceKind) : null;
 }
 
 function extractDeterministicMerchant(params: {
@@ -282,7 +314,14 @@ function extractDescription(text: string, type: "income" | "expense"): string | 
 }
 
 export function resolveTransactionFields(input: ResolveTransactionFieldsInput): ExpenseDraft {
-  const { text, type, currentDraft, llmPatch = {}, userCategories = new Set<string>() } = input;
+  const {
+    text,
+    type,
+    currentDraft,
+    llmPatch = {},
+    userCategories = new Set<string>(),
+    today,
+  } = input;
   const missingFields = input.missingFields ?? ["amount", "date", "category", "merchant"];
   const firstMissing = missingFields[0] ?? null;
 
@@ -294,21 +333,24 @@ export function resolveTransactionFields(input: ResolveTransactionFieldsInput): 
   const date =
     currentDraft?.date ??
     (missingFields.includes("date") || !currentDraft
-      ? resolveTransactionDate(llmPatch.date, text)
+      ? resolveTransactionDate(llmPatch.date, text, today)
       : null);
 
-  const category =
+  const resolvedCategory =
     currentDraft?.category ??
-    (type === "income"
-      ? "otros"
-      : resolveCategoryCandidate({
-          text,
-          llmCategory: llmPatch.category,
-          userCategories,
-          expectingCategory: firstMissing === "category",
-          allowNewCategory: true,
-          allowModelInference: !currentDraft || firstMissing === "category",
-        }));
+    (type === "income" ? extractIncomeCategoryEvidence(text) : null) ??
+    resolveCategoryCandidate({
+      text,
+      llmCategory: llmPatch.category,
+      userCategories,
+      expectingCategory: firstMissing === "category",
+      allowNewCategory: true,
+      // La salida estructurada puede aportar cualquier campo faltante, no
+      // solamente el primero que la interfaz preguntó.
+      allowModelInference: !currentDraft,
+      allowPurposeCategory: type === "expense",
+    });
+  const category = type === "income" ? (resolvedCategory ?? "otros") : resolvedCategory;
 
   const allowBareMerchant =
     firstMissing === "merchant" ||

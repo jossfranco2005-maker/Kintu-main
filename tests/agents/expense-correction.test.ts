@@ -28,6 +28,14 @@ describe("expense draft corrections", () => {
     );
   });
 
+  it("generaliza una corrección contrastiva con conector inicial", () => {
+    const patch = extractDeterministicExpenseCorrection("Y no fue en Las Menestras, fue en KFC", {
+      currentDraft: { ...baseDraft, merchant: "Las Menestras" },
+    });
+    expect(patch.merchant).toBe("KFC");
+    expect(patch.amount).toBeNull();
+  });
+
   it("extrae la categoría corregida", () => {
     expect(extractDeterministicExpenseCorrection("No fue comida, fue transporte").category).toBe(
       "transporte",

@@ -63,6 +63,9 @@ export const MessageUnderstandingSchema = z.object({
   correction: z.boolean(),
   multipleOperations: z.boolean(),
   confidence: z.number().min(0).max(1),
+  budgetAction: z.enum(["create_or_update", "query", "none"]),
+  dismissPendingState: z.boolean(),
+  currentRequestText: z.string().nullable(),
 });
 
 export const ExpenseExtractSchema = z.object({
@@ -78,9 +81,9 @@ export const ExpenseExtractSchema = z.object({
 export const MissingExpenseFieldSchema = z.enum(["amount", "date", "category", "merchant"]);
 
 export const BudgetIntentSchema = z.object({
-  category: z.string(),
-  limit_amount: z.number(),
-  alert_threshold: z.number(),
+  category: z.string().nullable(),
+  limit_amount: z.number().positive().nullable(),
+  alert_threshold: z.number().nullable(),
 });
 
 // Usado por el agente de notificaciones (ver agents/notification-agent.ts)

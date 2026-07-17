@@ -1559,7 +1559,9 @@ function MovementsPage() {
                         {/* Tipo */}
                         <TableCell className="text-xs font-semibold whitespace-nowrap">
                           {item.type === "income" ? (
-                            <span className="text-[#7C6FE0] dark:text-[#B9A9F5] whitespace-nowrap">Ingreso</span>
+                            <span className="text-[#7C6FE0] dark:text-[#B9A9F5] whitespace-nowrap">
+                              Ingreso
+                            </span>
                           ) : (
                             <span className="text-coral whitespace-nowrap">Gasto</span>
                           )}

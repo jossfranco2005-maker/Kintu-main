@@ -10,6 +10,22 @@ const WEEKDAY_INDEX: Record<string, number> = {
   sabado: 6,
 };
 
+const MONTH_INDEX: Record<string, number> = {
+  enero: 1,
+  febrero: 2,
+  marzo: 3,
+  abril: 4,
+  mayo: 5,
+  junio: 6,
+  julio: 7,
+  agosto: 8,
+  septiembre: 9,
+  setiembre: 9,
+  octubre: 10,
+  noviembre: 11,
+  diciembre: 12,
+};
+
 function normalizeDateText(value: string): string {
   return value
     .normalize("NFD")
@@ -96,8 +112,94 @@ export function containsTransactionDateExpression(text: string): boolean {
     /\b(?:el|este)\s+(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)(?:\s+pasado)?\b/.test(
       normalized,
     ) ||
-    /\b\d{4}-\d{2}-\d{2}\b/.test(normalized)
+    /\b\d{4}-\d{2}-\d{2}\b/.test(normalized) ||
+    /\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b/.test(normalized) ||
+    /\b(?:(?:el\s+)?dia\s+\d{1,2}|(?:el\s+)?\d{1,2}\s+de\s+[a-z]+(?:\s+de\s+\d{4})?)\b/.test(
+      normalized,
+    )
   );
+}
+
+function buildValidIsoDate(year: number, month: number, day: number): string | null {
+  const iso = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return isValidIsoDate(iso) ? iso : null;
+}
+
+function resolveLocalDateExpression(originalText: string, today: string): string | null {
+  const normalized = normalizeDateText(originalText);
+  const [currentYear, currentMonth, currentDay] = today.split("-").map(Number);
+  const numeric = normalized.match(/\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b/);
+  if (numeric) {
+    return buildValidIsoDate(Number(numeric[3]), Number(numeric[2]), Number(numeric[1]));
+  }
+
+  const named = normalized.match(
+    /\b(?:el\s+)?(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)(?:\s+de\s+(\d{4}))?\b/,
+  );
+  if (named) {
+    const day = Number(named[1]);
+    const month = MONTH_INDEX[named[2]];
+    const year = named[3] ? Number(named[3]) : currentYear;
+    const resolved = buildValidIsoDate(year, month, day);
+    if (!named[3] && resolved && resolved > today) return null;
+    return resolved;
+  }
+
+  const dayOnly = normalized.match(/\b(?:el\s+)?dia\s+(\d{1,2})\b/);
+  if (dayOnly) {
+    const day = Number(dayOnly[1]);
+    const currentCandidate = buildValidIsoDate(currentYear, currentMonth, day);
+    if (currentCandidate && day <= currentDay) return currentCandidate;
+
+    const previousMonth = new Date(Date.UTC(currentYear, currentMonth - 2, 1));
+    return buildValidIsoDate(previousMonth.getUTCFullYear(), previousMonth.getUTCMonth() + 1, day);
+  }
+
+  return null;
+}
+
+export type TransactionDateIssue = {
+  kind: "future_without_year" | "future_explicit" | "invalid";
+  mentionedDate: string | null;
+  suggestedDate: string | null;
+};
+
+export function inspectTransactionDateIssue(
+  originalText: string,
+  today = todayInEcuador(),
+): TransactionDateIssue | null {
+  const normalized = normalizeDateText(originalText);
+  const named = normalized.match(
+    /\b(?:el\s+)?(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)(?:\s+de\s+(\d{4}))?\b/,
+  );
+  if (!named) return null;
+
+  const [currentYear] = today.split("-").map(Number);
+  const day = Number(named[1]);
+  const month = MONTH_INDEX[named[2]];
+  const explicitYear = named[3] ? Number(named[3]) : null;
+  const candidate = buildValidIsoDate(explicitYear ?? currentYear, month, day);
+  if (!candidate) return { kind: "invalid", mentionedDate: null, suggestedDate: null };
+  if (candidate <= today) return null;
+
+  if (explicitYear) {
+    return { kind: "future_explicit", mentionedDate: candidate, suggestedDate: null };
+  }
+
+  return {
+    kind: "future_without_year",
+    mentionedDate: candidate,
+    suggestedDate: buildValidIsoDate(currentYear - 1, month, day),
+  };
+}
+
+export function formatIsoDateInSpanish(isoDate: string): string {
+  if (!isValidIsoDate(isoDate)) return isoDate;
+  const [year, month, day] = isoDate.split("-").map(Number);
+  const monthName = Object.entries(MONTH_INDEX).find(
+    ([name, value]) => value === month && name !== "setiembre",
+  )?.[0];
+  return `${day} de ${monthName ?? month} de ${year}`;
 }
 
 function resolveWeekdayExpression(originalText: string, today: string): string | null {
@@ -149,13 +251,13 @@ export function resolveTransactionDate(
 ): string | null {
   const candidate = extractedDate?.trim();
 
-  if (candidate && isValidIsoDate(candidate)) {
+  if (candidate && isValidIsoDate(candidate) && candidate <= today) {
     return candidate;
   }
 
   const normalizedText = normalizeDateText(originalText);
   const isoFromText = originalText.match(/\b\d{4}-\d{2}-\d{2}\b/)?.[0];
-  if (isoFromText && isValidIsoDate(isoFromText)) {
+  if (isoFromText && isValidIsoDate(isoFromText) && isoFromText <= today) {
     return isoFromText;
   }
 
@@ -170,6 +272,9 @@ export function resolveTransactionDate(
   if (/\bhoy\b/.test(normalizedText)) {
     return today;
   }
+
+  const localDate = resolveLocalDateExpression(originalText, today);
+  if (localDate) return localDate;
 
   return resolveWeekdayExpression(originalText, today);
 }

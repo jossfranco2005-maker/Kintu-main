@@ -36,17 +36,29 @@ describe("support safety rules", () => {
       });
     },
   );
-  it.each([
-    "ESTOY ENOJADISIMA",
-    "Estoy muy enojada",
-    "que porqueria de servicio",
-    "este bot es estupido",
-  ])("detecta expresiones de enojo o lenguaje inadecuado: %s", (message) => {
-    expect(classifySensitivity(message)).toMatchObject({
+  it.each(["ESTOY ENOJADISIMA", "Estoy muy frustrado", "Qué pésimo servicio"])(
+    "no convierte una emoción aislada en incidente sensible: %s",
+    (message) => expect(classifySensitivity(message)).toBeNull(),
+  );
+
+  it("conserva el incidente concreto aunque incluya enojo", () => {
+    expect(classifySensitivity("Estoy furioso porque me cobraron dos veces")).toMatchObject({
       category: "reclamo",
       priority: "high",
     });
   });
+
+  it.each([
+    "No estoy enojado, solo quiero revisar mis gastos.",
+    "Mi hermano está enojado por sus gastos.",
+  ])("no atribuye una emoción aislada como incidente del usuario: %s", (message) => {
+    expect(classifySensitivity(message)).toBeNull();
+  });
+
+  it.each(["Quiero hablar con una persona", "Necesito comunicarme con soporte humano"])(
+    "escala una solicitud humana explícita: %s",
+    (message) => expect(classifySensitivity(message)).toMatchObject({ category: "humano" }),
+  );
 });
 
 describe("investment boundaries", () => {

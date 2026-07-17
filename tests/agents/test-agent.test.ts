@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { generateTextMock } = vi.hoisted(() => ({
-  generateTextMock: vi.fn(),
+const { generateStructuredMock } = vi.hoisted(() => ({
+  generateStructuredMock: vi.fn(),
 }));
 
-vi.mock("ai", () => ({
-  generateText: generateTextMock,
+vi.mock("@/lib/ai/structured.server", () => ({
+  generateStructured: generateStructuredMock,
 }));
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -23,7 +23,7 @@ describe("Kintu conversational financial agent", () => {
   } as unknown as SupabaseClient;
 
   beforeEach(() => {
-    generateTextMock.mockReset();
+    generateStructuredMock.mockReset();
     vi.clearAllMocks();
   });
 
@@ -75,9 +75,16 @@ describe("Kintu conversational financial agent", () => {
       };
     });
 
-    const mockResponse =
-      "Tu categoría con mayores ingresos este mes es Salario con USD 850. Le siguen Freelance con USD 240.";
-    generateTextMock.mockResolvedValue({ text: mockResponse });
+    generateStructuredMock.mockResolvedValue({
+      fact_ids: ["income_category:salario", "income_category:freelance"],
+      style: "normal",
+      format: "short_paragraph",
+      answer:
+        "Tu mayor fuente de ingresos es salario con USD 850.00, seguida de freelance con USD 240.00.",
+      introduction: null,
+      items: [],
+      closing: null,
+    });
 
     const reply = await buildPersonalizedFinancialReply({
       supabase: mockSupabase,
@@ -86,13 +93,27 @@ describe("Kintu conversational financial agent", () => {
       conversationId: "conv-456",
     });
 
-    expect(reply).toBe(mockResponse);
-    expect(generateTextMock).toHaveBeenCalledTimes(1);
+    expect(reply).toBe(
+      "Tu mayor fuente de ingresos es salario con USD 850.00, seguida de freelance con USD 240.00.",
+    );
+    expect(generateStructuredMock).toHaveBeenCalledTimes(1);
 
     // Verify systemPrompt parameters were constructed and sent in prompt config
-    const callArgs = generateTextMock.mock.calls[0][0];
-    expect(callArgs.system).toContain("Salario");
-    expect(callArgs.system).toContain("Freelance");
-    expect(callArgs.system).toContain("comida");
+    const callArgs = generateStructuredMock.mock.calls[0][0];
+    expect(callArgs.prompt).toContain("income_category:salario");
+    expect(callArgs.prompt).toContain("income_category:freelance");
+    expect(callArgs.prompt).toContain("expense_category:comida");
+  });
+
+  it("usa una respuesta determinista cuando el LLM no está disponible", async () => {
+    generateStructuredMock.mockRejectedValue(new Error("LLM unavailable"));
+    const reply = await buildPersonalizedFinancialReply({
+      supabase: mockSupabase,
+      userId: "user-123",
+      userText: "¿Cómo voy este mes?",
+      conversationId: "conv-456",
+    });
+    expect(reply).toContain("USD");
+    expect(reply).not.toContain("undefined");
   });
 });

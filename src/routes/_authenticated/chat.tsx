@@ -25,6 +25,7 @@ import {
   sendMessage,
 } from "@/lib/chat.functions";
 import { acknowledgeAlerts, getSummary, listAlerts, listBudgets } from "@/lib/finance.functions";
+import { formatIsoDateInSpanish } from "@/lib/finance/date";
 import {
   getNotifications,
   markAllNotificationsRead,
@@ -1120,7 +1121,9 @@ function MessageRow({
                   {draft.type === "income" ? "ingreso" : "gasto"} · {draft.category}
                   {draft.merchant ? ` · ${draft.merchant}` : ""}
                 </div>
-                <div className="text-xs text-muted-foreground mt-1">Fecha: {draft.date}</div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  Fecha: {draft.date ? formatIsoDateInSpanish(draft.date) : ""}
+                </div>
               </div>
 
               <div className="flex gap-2 shrink-0">

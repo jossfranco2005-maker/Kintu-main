@@ -1,12 +1,20 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getConfiguredGroqApiKeys, withGroqKeyFailover } from "@/lib/ai/gateway.server";
+import {
+  DEFAULT_MODEL,
+  GROQ_STRUCTURED_OPTIONS,
+  STRUCTURED_MODEL,
+  getConfiguredGroqApiKeys,
+  withGroqKeyFailover,
+} from "@/lib/ai/gateway.server";
 
 const originalEnvironment = {
   GROQ_API_KEY: process.env.GROQ_API_KEY,
   GROQ_API_KEY_2: process.env.GROQ_API_KEY_2,
   GROQ_API_KEY_3: process.env.GROQ_API_KEY_3,
   GROQ_API_KEYS: process.env.GROQ_API_KEYS,
+  AI_MODEL: process.env.AI_MODEL,
+  AI_STRUCTURED_MODEL: process.env.AI_STRUCTURED_MODEL,
 };
 
 afterEach(() => {
@@ -17,6 +25,20 @@ afterEach(() => {
 });
 
 describe("Groq key failover", () => {
+  it("separa el modelo conversacional del modelo estructurado", () => {
+    expect(DEFAULT_MODEL).toBe(process.env.AI_MODEL ?? "llama-3.3-70b-versatile");
+    expect(STRUCTURED_MODEL).toBe(process.env.AI_STRUCTURED_MODEL ?? "openai/gpt-oss-120b");
+    expect(GROQ_STRUCTURED_OPTIONS).toEqual({
+      groq: { structuredOutputs: true, strictJsonSchema: true },
+    });
+  });
+
+  it("permite sobrescribir únicamente el modelo estructurado", async () => {
+    process.env.AI_STRUCTURED_MODEL = "custom/structured-model";
+    vi.resetModules();
+    const gateway = await import("@/lib/ai/gateway.server");
+    expect(gateway.STRUCTURED_MODEL).toBe("custom/structured-model");
+  });
   it("combina la clave principal y las adicionales sin duplicados", () => {
     process.env.GROQ_API_KEY = "key-primary";
     process.env.GROQ_API_KEY_2 = "key-secondary";

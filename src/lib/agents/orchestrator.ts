@@ -9,9 +9,12 @@ import {
   checkPendingSupportChoice,
   handleSupportFlow,
   resolveSupportChoice,
-  looksLikeOwnStateQuestion,
+  isCompatibleSupportChoice,
 } from "@/lib/agents/support-flow.server";
-import { buildPersonalizedFinancialReply } from "@/lib/agents/insight-agent.server";
+import {
+  buildHypotheticalBudgetReply,
+  buildPersonalizedFinancialReply,
+} from "@/lib/agents/insight-agent.server";
 import {
   BudgetIntentSchema,
   SYSTEM_BASE,
@@ -20,6 +23,9 @@ import {
 } from "@/lib/agents/schemas";
 import {
   decideUnderstandingAction,
+  isTransactionUsageQuestion,
+  isExplicitConfirmationMessage,
+  hasExplicitBudgetMutationAction,
   type UnderstandingAction,
 } from "@/lib/agents/message-understanding";
 import { understandMessage } from "@/lib/agents/message-understanding.server";
@@ -89,6 +95,7 @@ async function handleBudget(input: OrchestratorInput): Promise<OrchestratorResul
 
   try {
     const output = await generateStructured({
+      name: "budget-intent",
       schema: BudgetIntentSchema,
       system: SYSTEM_BASE,
       prompt: `Extrae un presupuesto mensual:
@@ -98,6 +105,16 @@ async function handleBudget(input: OrchestratorInput): Promise<OrchestratorResul
 
 Mensaje: ${text}`,
     });
+
+    if (!output.category && !output.limit_amount) {
+      return { reply: "¿Para qué categoría y por qué monto quieres configurar el presupuesto?" };
+    }
+    if (!output.category) {
+      return { reply: "¿Para qué categoría quieres configurar ese presupuesto?" };
+    }
+    if (!output.limit_amount) {
+      return { reply: `¿Cuál debe ser el monto mensual del presupuesto de ${output.category}?` };
+    }
 
     const userCategories = await loadUserBudgetCategories({ supabase, userId });
     const category =
@@ -164,14 +181,21 @@ async function handleSummary(input: OrchestratorInput): Promise<OrchestratorResu
   }
 }
 
+export function identityReplyForMessage(text: string): string | null {
+  if (!/^\s*[¿]?\s*(?:qu[eé]\s+eres|qu[eé]\s+es\s+kintu)\s*[?]?\s*$/i.test(text)) return null;
+  return "Soy Kintu, un asistente financiero que te ayuda a registrar movimientos, revisar presupuestos y resolver consultas.";
+}
+
 async function handleSmalltalk(input: OrchestratorInput): Promise<OrchestratorResult> {
+  const identityReply = identityReplyForMessage(input.text);
+  if (identityReply) return { reply: identityReply };
   try {
     const { text: reply } = await withGroqKeyFailover((model) =>
       generateText({
         model,
         maxRetries: 0,
         system: SYSTEM_BASE,
-        prompt: `Responde en 1 o 2 frases, de forma cálida y breve. Sugiere que puedes registrar gastos, revisar presupuestos o abrir un caso con una persona cuando exista un problema.\n\nMensaje: ${input.text}`,
+        prompt: `Responde en 1 o 2 frases, de forma cálida y breve. No repitas un saludo ni una presentación si la conversación ya comenzó. Describe solamente capacidades reales: registrar movimientos con confirmación, revisar presupuestos y consultas, o abrir un caso cuando corresponda.\n\nMensaje: ${input.text}`,
       }),
     );
     return { reply };
@@ -192,12 +216,19 @@ export async function runOrchestrator(
     return { reply: "Se hizo largo el análisis. Probemos con un mensaje más corto." };
   }
 
+  if (isExplicitConfirmationMessage(input.text)) {
+    return {
+      reply:
+        "No existe una transacción pendiente para confirmar. Si acabas de guardarla, la anterior ya quedó registrada y no la duplicaré.",
+    };
+  }
+
   // Si el turno anterior dejó una bifurcación pendiente (¿caso o
   // recomendación?), este mensaje la resuelve — no pasa por el
   // clasificador general, porque "1" o "la recomendación" no tienen
   // intención propia fuera de ese contexto.
   const pendingSupportText = await checkPendingSupportChoice(input.supabase, input.conversationId);
-  if (pendingSupportText) {
+  if (pendingSupportText && isCompatibleSupportChoice(input.text)) {
     return resolveSupportChoice(input, pendingSupportText);
   }
 
@@ -223,6 +254,11 @@ export async function runOrchestrator(
   }
 
   const understanding = await understandMessage(input.text, recentMessages);
+  const effectiveText =
+    understanding.dismissPendingState && understanding.currentRequestText?.trim()
+      ? understanding.currentRequestText.trim()
+      : input.text;
+  const effectiveInput = effectiveText === input.text ? input : { ...input, text: effectiveText };
   const action: UnderstandingAction = decideUnderstandingAction(understanding);
 
   switch (action) {
@@ -239,6 +275,14 @@ export async function runOrchestrator(
       return {
         reply:
           "Parece un ejemplo o una posibilidad, no una transacción realizada. No registraré nada.",
+      };
+    case "simulate_hypothetical":
+      return {
+        reply: await buildHypotheticalBudgetReply({
+          supabase: input.supabase,
+          userId: input.userId,
+          userText: effectiveText,
+        }),
       };
     case "split_multiple":
       return {
@@ -276,26 +320,30 @@ export async function runOrchestrator(
       }
 
       return handleExpenseFlow({
-        text: input.text,
+        text: effectiveText,
         transactionType: understanding.transactionType,
         userCategories,
       });
     }
     case "budget":
-      if (understanding.speechAct === "question") {
-        if (looksLikeOwnStateQuestion(input.text)) {
-          return handleSummary(input);
-        }
+      if (
+        understanding.budgetAction !== "create_or_update" &&
+        !hasExplicitBudgetMutationAction(effectiveText)
+      ) {
+        return handleSummary(effectiveInput);
+      }
+      return handleBudget(effectiveInput);
+    case "summary":
+      return handleSummary(effectiveInput);
+    case "support":
+      if (isTransactionUsageQuestion(effectiveText)) {
         return {
           reply:
-            "Puedo crear un presupuesto mensual. Escríbeme, por ejemplo: “presupuesto de 200 en comida, aviso al 80%”.",
+            "Escríbeme algo como: “Hoy gasté 25 dólares en comida en KFC”. " +
+            "Te mostraré un borrador para que lo confirmes antes de guardarlo.",
         };
       }
-      return handleBudget(input);
-    case "summary":
-      return handleSummary(input);
-    case "support":
-      return handleSupportFlow(input);
+      return handleSupportFlow(effectiveInput);
     case "smalltalk":
       return handleSmalltalk(input);
     default:

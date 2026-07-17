@@ -1,13 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import { generateText } from "ai";
 
 import { SYSTEM_BASE } from "@/lib/agents/schemas";
 import { generateStructured } from "@/lib/ai/structured.server";
-import { withGroqKeyFailover } from "@/lib/ai/gateway.server";
-import { formatMoney } from "@/lib/finance/categorize";
+import { formatMoney, normalizeCategory } from "@/lib/finance/categorize";
 import { firstOfMonth, nextMonthStart } from "@/lib/finance/budget";
 import { monthRangeForIsoDate, shiftIsoDate } from "@/lib/finance/date";
+import { requestsPersonalizedInvestmentAdvice } from "@/lib/finance/sensitivity";
 import {
   buildDeterministicFinancialSummary,
   buildFinancialInsightCandidates,
@@ -18,10 +17,221 @@ import {
   type InsightTransaction,
 } from "@/lib/finance/insights";
 
-const InsightSelectionSchema = z.object({
+export const InsightSelectionSchema = z.object({
   selected_ids: z.array(z.string()).max(2),
   closing: z.string().max(160).nullable(),
 });
+
+export const HypotheticalExpenseSchema = z.object({
+  amount: z.number().positive().nullable(),
+  category: z.string().nullable(),
+});
+
+export const FinancialResponsePlanSchema = z.object({
+  fact_ids: z.array(z.string()).max(4),
+  style: z.enum(["brief", "normal", "simple", "explanatory"]),
+  format: z.enum([
+    "sentence",
+    "short_paragraph",
+    "bullet_list",
+    "numbered_steps",
+    "summary_with_bullets",
+  ]),
+  answer: z.string().max(1000).nullable(),
+  introduction: z.string().max(400).nullable(),
+  items: z.array(z.string().max(400)).max(6),
+  closing: z.string().max(400).nullable(),
+});
+
+export type VerifiedFinancialFact = { id: string; text: string; critical?: boolean };
+export type FinancialResponsePlan = z.infer<typeof FinancialResponsePlanSchema>;
+
+export function buildVerifiedFinancialFacts(
+  snapshot: FinancialInsightSnapshot,
+): VerifiedFinancialFact[] {
+  const facts: VerifiedFinancialFact[] = [
+    { id: "total_income", text: `Ingresos del mes: ${formatMoney(snapshot.current.income)}.` },
+    { id: "total_expense", text: `Gastos del mes: ${formatMoney(snapshot.current.expense)}.` },
+    { id: "net", text: `Balance neto del mes: ${formatMoney(snapshot.current.net)}.` },
+  ];
+
+  const expenses = Object.entries(
+    snapshot.current.expenseByCategory ?? snapshot.current.byCategory,
+  ).sort((a, b) => b[1] - a[1]);
+  expenses.forEach(([category, amount], index) => {
+    facts.push({
+      id: `expense_category:${category}`,
+      text: `${index === 0 ? "La categoría de mayor gasto" : "Gasto"} en ${category}: ${formatMoney(amount)}.`,
+    });
+  });
+
+  Object.entries(snapshot.current.incomeByCategory ?? {})
+    .sort((a, b) => b[1] - a[1])
+    .forEach(([category, amount], index) => {
+      facts.push({
+        id: `income_category:${category}`,
+        text: `${index === 0 ? "La categoría de mayor ingreso" : "Ingreso"} en ${category}: ${formatMoney(amount)}.`,
+      });
+    });
+
+  snapshot.budgets.forEach((budget) => {
+    const spent = snapshot.current.byCategory[budget.category] ?? 0;
+    const percentage = budget.limitAmount > 0 ? Math.round((spent / budget.limitAmount) * 100) : 0;
+    const difference = budget.limitAmount - spent;
+    facts.push({
+      id: `budget:${budget.category}`,
+      critical: difference < 0,
+      text:
+        `Presupuesto de ${budget.category}: llevas ${formatMoney(spent)} de ${formatMoney(budget.limitAmount)} (${percentage}%). ` +
+        (difference >= 0
+          ? `Te faltan ${formatMoney(difference)} para llegar al límite.`
+          : `Excedes el límite por ${formatMoney(Math.abs(difference))}.`),
+    });
+  });
+
+  return facts;
+}
+
+export function renderVerifiedFacts(
+  facts: VerifiedFinancialFact[],
+  style: z.infer<typeof FinancialResponsePlanSchema>["style"],
+): string {
+  if (facts.length === 0) return "No tengo datos confirmados que respondan esa pregunta.";
+  const selected = style === "brief" ? facts.slice(0, 1) : facts;
+  if (style === "simple")
+    return `En palabras simples: ${selected.map((fact) => fact.text).join(" ")}`;
+  if (style === "explanatory")
+    return `La conclusión sale de estos datos confirmados: ${selected.map((fact) => fact.text).join(" ")}`;
+  return selected.map((fact) => fact.text).join(" ");
+}
+
+function numericValues(text: string): number[] {
+  return [...text.matchAll(/\b(?:\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{1,2})?|\d+(?:[.,]\d+)?)\b/g)]
+    .map((match) => {
+      const raw = match[0];
+      const lastComma = raw.lastIndexOf(",");
+      const lastDot = raw.lastIndexOf(".");
+      const decimalIndex = Math.max(lastComma, lastDot);
+      const decimalDigits = decimalIndex >= 0 ? raw.length - decimalIndex - 1 : 0;
+      if (decimalDigits === 1 || decimalDigits === 2) {
+        return Number(
+          `${raw.slice(0, decimalIndex).replace(/[.,]/g, "")}.${raw.slice(decimalIndex + 1)}`,
+        );
+      }
+      return Number(raw.replace(/[.,]/g, ""));
+    })
+    .filter(Number.isFinite);
+}
+
+function responseParts(plan: FinancialResponsePlan): string[] {
+  return [plan.answer, plan.introduction, ...(plan.items ?? []), plan.closing]
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part));
+}
+
+export function validateFinancialResponsePlan(params: {
+  plan: FinancialResponsePlan;
+  availableFacts: VerifiedFinancialFact[];
+}): { selected: VerifiedFinancialFact[]; text: string } | null {
+  const { plan, availableFacts } = params;
+  const byId = new Map(availableFacts.map((fact) => [fact.id, fact]));
+  if (plan.fact_ids.length === 0 || plan.fact_ids.some((id) => !byId.has(id))) return null;
+
+  const selected = [...new Set(plan.fact_ids)].map((id) => byId.get(id)!);
+  const parts = responseParts(plan);
+  if (parts.length === 0) return null;
+  if (
+    selected.length === 1 &&
+    ["bullet_list", "numbered_steps", "summary_with_bullets"].includes(plan.format)
+  ) {
+    return null;
+  }
+
+  const combined = parts.join("\n");
+  const allowedNumbers = numericValues(selected.map((fact) => fact.text).join(" "));
+  if (numericValues(combined).some((value) => !allowedNumbers.includes(value))) return null;
+  if (
+    /\b(?:abri|abrí|cree|creé|guarde|guardé|registre|registré|ejecute|ejecuté)\b/i.test(combined)
+  ) {
+    return null;
+  }
+  if (requestsPersonalizedInvestmentAdvice(combined)) return null;
+
+  for (const critical of selected.filter((fact) => fact.critical)) {
+    const criticalNumbers = numericValues(critical.text);
+    const responseNumbers = numericValues(combined);
+    if (criticalNumbers.some((value) => !responseNumbers.includes(value))) return null;
+  }
+
+  const introduction = plan.introduction?.trim();
+  const answer = plan.answer?.trim();
+  const closing = plan.closing?.trim();
+  let text: string;
+  if (plan.format === "bullet_list" || plan.format === "summary_with_bullets") {
+    text = [introduction, ...(plan.items ?? []).map((item) => `- ${item.trim()}`), closing]
+      .filter(Boolean)
+      .join("\n");
+  } else if (plan.format === "numbered_steps") {
+    text = [
+      introduction,
+      ...(plan.items ?? []).map((item, index) => `${index + 1}. ${item.trim()}`),
+      closing,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  } else {
+    text = [answer ?? introduction, ...(plan.items ?? []), closing].filter(Boolean).join("\n\n");
+  }
+
+  return text.trim() ? { selected, text: text.trim() } : null;
+}
+
+export async function buildHypotheticalBudgetReply(params: {
+  supabase: SupabaseClient;
+  userId: string;
+  userText: string;
+}): Promise<string> {
+  const snapshot = await loadFinancialInsightSnapshot(params);
+  let extracted: z.infer<typeof HypotheticalExpenseSchema> = { amount: null, category: null };
+
+  try {
+    extracted = await generateStructured({
+      name: "hypothetical-expense",
+      schema: HypotheticalExpenseSchema,
+      system: SYSTEM_BASE,
+      prompt: `Extrae el monto y la categoría del escenario hipotético. No calcules nada y usa null si no hay evidencia.\n\nMensaje: ${params.userText}`,
+    });
+  } catch (error) {
+    console.error("[insight-agent] Error extracting hypothetical scenario:", error);
+  }
+
+  const fallbackAmount = Number(
+    params.userText.match(/(?:\$|USD\s*)?(\d+(?:[.,]\d{1,2})?)/i)?.[1]?.replace(",", "."),
+  );
+  const amount = extracted.amount ?? (fallbackAmount > 0 ? fallbackAmount : null);
+  const categoryInput = (extracted.category ?? "").trim().toLowerCase();
+  const category =
+    snapshot.budgets.find((item) => item.category.toLowerCase() === categoryInput)?.category ??
+    normalizeCategory(extracted.category ?? params.userText);
+  if (!amount || !category) {
+    return "Entendí que es una simulación, pero necesito el monto y la categoría para calcularla.";
+  }
+
+  const budget = snapshot.budgets.find((item) => item.category === category);
+  const current = snapshot.current.byCategory[category] ?? 0;
+  const projected = current + amount;
+  if (!budget) {
+    return `Simulación: en ${category} llevarías ${formatMoney(projected)} después de sumar ${formatMoney(amount)}. No tienes un presupuesto mensual definido para esa categoría.`;
+  }
+
+  const percentage = (projected / budget.limitAmount) * 100;
+  const difference = budget.limitAmount - projected;
+  const state =
+    difference >= 0
+      ? `te quedarían ${formatMoney(difference)}`
+      : `excederías el límite por ${formatMoney(Math.abs(difference))}`;
+  return `Simulación: en ${category} llevarías ${formatMoney(projected)}, el ${Math.round(percentage)}% de tu presupuesto de ${formatMoney(budget.limitAmount)}; ${state}. No registré ninguna transacción.`;
+}
 
 function safeClosing(value: string | null | undefined): string | null {
   const closing = value?.trim();
@@ -110,7 +320,7 @@ export async function loadFinancialInsightSnapshot(params: {
   };
 }
 
-async function chooseInsightsWithModel(params: {
+export async function chooseInsightsWithModel(params: {
   userText: string;
   candidates: FinancialInsightCandidate[];
 }): Promise<{ selected: FinancialInsightCandidate[]; closing: string | null }> {
@@ -122,6 +332,7 @@ async function chooseInsightsWithModel(params: {
 
   try {
     const result = await generateStructured({
+      name: "insight-selection",
       schema: InsightSelectionSchema,
       system: SYSTEM_BASE,
       prompt: `Actúas como el agente de insights de Kintu.
@@ -160,6 +371,7 @@ export async function buildPersonalizedFinancialReply(params: {
 }): Promise<string> {
   const { supabase, userId, userText, conversationId } = params;
   const snapshot = await loadFinancialInsightSnapshot({ supabase, userId });
+  const verifiedFacts = buildVerifiedFinancialFacts(snapshot);
 
   // Load conversation history if conversationId is available
   let history: Array<{ role: string; content: string }> = [];
@@ -185,70 +397,35 @@ export async function buildPersonalizedFinancialReply(params: {
   }
 
   try {
-    const systemPrompt = `Actúas como un analista financiero conversacional para Kintu. Tu objetivo es responder preguntas del usuario de forma precisa, natural, directa y concisa utilizando ÚNICAMENTE los datos financieros reales proporcionados.
+    const plan = await generateStructured({
+      name: "financial-response-plan",
+      schema: FinancialResponsePlanSchema,
+      system: SYSTEM_BASE,
+      prompt: `Selecciona hechos verificados y redacta una respuesta natural usando exclusivamente esos hechos. No calcules cifras.
 
-DATOS FINANCIEROS REALES DEL USUARIO:
-- Mes actual: ${snapshot.month}
-- Ingresos totales del mes: ${formatMoney(snapshot.current.income)}
-- Gastos totales del mes: ${formatMoney(snapshot.current.expense)}
-- Balance neto (Ingresos - Gastos): ${formatMoney(snapshot.current.net)}
-- Transacciones confirmadas este mes: ${snapshot.current.transactionCount}
+Mensaje actual: ${userText}
+Historial reciente:
+${history.map((m) => `${m.role}: ${m.content}`).join("\n")}
 
-DESGLOSE DE INGRESOS POR CATEGORÍA:
-${JSON.stringify(snapshot.current.incomeByCategory || {}, null, 2)}
+Hechos disponibles:
+${verifiedFacts.map((fact) => `${fact.id}: ${fact.text}`).join("\n")}
 
-DESGLOSE DE GASTOS POR CATEGORÍA:
-${JSON.stringify(snapshot.current.expenseByCategory || {}, null, 2)}
+Usa solo IDs existentes. Para seguimientos o preguntas sobre una conclusión anterior, usa el historial.
+- style=brief si pide ir al grano; simple si pide lenguaje sencillo; explanatory si pregunta por qué o cómo se llegó a una conclusión.
+- format=sentence para una respuesta concreta; summary_with_bullets para varios indicadores; bullet_list para datos comparables; numbered_steps solo para un procedimiento real; short_paragraph para una explicación conceptual.
+- answer, introduction, items y closing solo pueden parafrasear los hechos seleccionados.
+- Copia montos, porcentajes y fechas exactamente; no agregues ninguna cifra.
+- No uses Markdown ni HTML. Los items se renderizan después como texto plano.
+- No afirmes que se guardó, creó o ejecutó una acción.`,
+    });
+    const validated = validateFinancialResponsePlan({ plan, availableFacts: verifiedFacts });
+    if (validated) return validated.text;
 
-PRESUPUESTOS MENSUALES DEFINIDOS:
-${JSON.stringify(
-  snapshot.budgets.map((b) => ({
-    categoría: b.category,
-    límite: b.limitAmount,
-    alerta: b.alertThreshold,
-  })),
-  null,
-  2,
-)}
-
-HISTORIAL DE LA CONVERSACIÓN RECIENTE:
-${history.map((m) => `${m.role === "user" ? "Usuario" : "Asistente"}: ${m.content}`).join("\n")}
-
-REGLAS DE RESPUESTA:
-1. COMPRENSIÓN DE CONTEXTO Y PREGUNTAS CORTAS:
-   - Resuelve pronombres, elipsis y preguntas incompletas basándote en el historial de la conversación.
-   - Si el usuario pregunta "¿y en cuál?", "¿pero en qué?", "¿cuál fue la mayor?", o "¿y la segunda?", asume que continúa preguntando sobre el desglose de ingresos o gastos del tema anterior y responde según los datos.
-
-2. CONSULTAS DE INGRESOS:
-   - Si pregunta "¿En qué he tenido más ingresos?", "¿Cuál es mi categoría con más ingresos?", "¿Qué categoría genera más dinero?", "¿Dónde gano más?" o similar (o preguntas de seguimiento sobre este tema):
-     * Si no hay categorías de ingresos: responde exactamente "Todavía no tienes ingresos clasificados por categorías."
-     * Si hay solo una categoría: nómbrala directamente con su monto en una frase corta y amigable, sin generar una lista (ej. "Tu única fuente de ingresos es Salario con USD 850.").
-     * Si hay más de una categoría de ingresos: responde con un ranking descendente de las categorías, mencionando los montos (ej. "Tu categoría con mayores ingresos este mes es Salario con USD 850. Le siguen Freelance con USD 240 y Ventas con USD 110.").
-   - NUNCA respondas únicamente con el balance o resumen mensual si la pregunta es sobre el desglose de ingresos.
-
-3. CONSULTAS DE GASTOS:
-   - Si pregunta en qué gasta más, su mayor gasto, o categorías de gastos:
-     * Si no hay categorías de gastos: responde exactamente que todavía no tiene gastos clasificados.
-     * Si hay solo una categoría: nómbrala directamente con su monto.
-     * Si hay más de una categoría: devuelve el ranking de categorías de gasto correspondientes (orden descendente).
-
-4. EVITAR RESPUESTAS GENÉRICAS Y REPETITIVAS:
-   - No comiences ni repitas automáticamente "Este mes registras ingresos por X, gastos por Y..." a menos que el usuario esté pidiendo explícitamente un resumen general del mes o balance mensual.
-   - Responde directamente a la pregunta específica del usuario con tono analítico y cercano.
-
-5. PRIORIDAD DEL CONTEXTO:
-   - Prioriza siempre analizar los datos financieros antes de responder. Solo di que no entiendes cuando la pregunta sea realmente ambigua y no tenga relación con finanzas o soporte técnico.`;
-
-    const { text: reply } = await withGroqKeyFailover((model) =>
-      generateText({
-        model,
-        maxRetries: 0,
-        system: systemPrompt,
-        prompt: `Mensaje del usuario: "${userText}"`,
-      }),
-    );
-
-    return reply;
+    const byId = new Map(verifiedFacts.map((fact) => [fact.id, fact]));
+    const selected = [...new Set(plan.fact_ids)]
+      .map((id) => byId.get(id))
+      .filter((fact): fact is VerifiedFinancialFact => Boolean(fact));
+    return renderVerifiedFacts(selected, plan.style);
   } catch (error) {
     console.error("[insight-agent] Error generating personalized financial reply with LLM:", error);
     const candidates = buildFinancialInsightCandidates(snapshot);

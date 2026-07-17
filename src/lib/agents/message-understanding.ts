@@ -35,6 +35,9 @@ export type MessageUnderstanding = {
   correction: boolean;
   multipleOperations: boolean;
   confidence: number;
+  budgetAction?: "create_or_update" | "query" | "none";
+  dismissPendingState?: boolean;
+  currentRequestText?: string | null;
   source: "rules" | "llm" | "fallback";
 };
 
@@ -44,6 +47,7 @@ export type UnderstandingAction =
   | "ignore_negated"
   | "ignore_future"
   | "ignore_hypothetical"
+  | "simulate_hypothetical"
   | "split_multiple"
   | "cancel"
   | "correction_without_draft";
@@ -59,7 +63,7 @@ export function normalizeUnderstandingText(text: string): string {
 }
 
 const CANCEL_PATTERN =
-  /^\s*(?:no\s*,?\s*)?(?:cancelar|cancela(?:lo|la)?|descartar|descarta(?:lo|la)?|olvidalo|dejalo)\s*[.!]?\s*$/i;
+  /^(?:olvidalo(?:\s*,?\s*(?:y\s+)?cancela\s+(?:ese|esa|el|la)?\s*(?:gasto|ingreso|transaccion))?|(?:ya\s+)?no\s+quiero\s+registrar\s+(?:eso|lo|esa\s+transaccion)|descarta\s+(?:la|el|esa|ese)?\s*(?:transaccion|movimiento|gasto|ingreso)(?:\s+anterior)?|(?:no\s*,?\s*)?(?:cancelar|cancela(?:lo|la)?|descartar|descarta(?:lo|la)?|olvidalo|dejalo))\s*[.!]?$/i;
 
 const CORRECTION_PATTERN =
   /\b(no (?:fue|eran|era|fueron|son)|quise decir|corrige|corregir|cambia(?:lo|la)?|en realidad|me equivoque|rectifico)\b/i;
@@ -138,6 +142,23 @@ export function isDraftCorrectionMessage(text: string): boolean {
 
 export function isExplicitCancellationMessage(text: string): boolean {
   return CANCEL_PATTERN.test(normalizeUnderstandingText(text));
+}
+
+export function isExplicitConfirmationMessage(text: string): boolean {
+  return /^(?:si[,.]?\s*)?(?:confirma(?:r)?|guarda(?:r)?)(?:\s+(?:otra\s+vez|de\s+nuevo))?\s*[.!]?$/.test(
+    normalizeUnderstandingText(text),
+  );
+}
+
+export function isTransactionUsageQuestion(text: string): boolean {
+  return HOW_TO_TRANSACTION_PATTERN.test(normalizeUnderstandingText(text));
+}
+
+export function hasExplicitBudgetMutationAction(text: string): boolean {
+  const normalized = normalizeUnderstandingText(text);
+  return /\b(?:crea|crear|define|definir|establece|establecer|configura|configurar|modifica|modificar|cambia|cambiar|sube|subir|baja|bajar|ajusta|ajustar)\b/.test(
+    normalized,
+  );
 }
 
 export function analyzeMessageWithRules(text: string): MessageUnderstanding | null {
@@ -296,6 +317,9 @@ export function decideUnderstandingAction(
   if (understanding.intent === "correction") return "correction_without_draft";
   if (understanding.multipleOperations) return "split_multiple";
   if (understanding.negated) return "ignore_negated";
+  if (understanding.hypothetical && understanding.transactionType === "expense") {
+    return "simulate_hypothetical";
+  }
   if (understanding.hypothetical) return "ignore_hypothetical";
   if (understanding.future) return "ignore_future";
 
@@ -328,6 +352,9 @@ export function fallbackUnderstanding(): MessageUnderstanding {
     correction: false,
     multipleOperations: false,
     confidence: 0.2,
+    budgetAction: "none",
+    dismissPendingState: false,
+    currentRequestText: null,
     source: "fallback",
   };
 }

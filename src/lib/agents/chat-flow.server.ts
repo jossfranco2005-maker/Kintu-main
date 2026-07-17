@@ -1,5 +1,5 @@
 import { completeExpenseFlow, reviseExpenseFlow } from "@/lib/agents/expense-flow";
-import { shouldInterruptTransactionDraft } from "@/lib/agents/draft-interruption";
+import { decideDraftTurn } from "@/lib/agents/draft-turn-decision.server";
 import { isDraftCorrectionMessage } from "@/lib/agents/message-understanding";
 import {
   cancelTransactionDraft,
@@ -18,18 +18,6 @@ export type ChatFlowResult = OrchestratorResult & {
   draft_id?: string;
   cancelled_draft_id?: string;
 };
-
-function isCancellationMessage(text: string, awaitingConfirmation: boolean): boolean {
-  if (
-    /^\s*(?:no\s*,?\s*)?(?:cancelar|cancela(?:lo|la)?|descartar|descarta(?:lo|la)?|olvídalo|olvidalo|déjalo|dejalo)\s*[.!]?\s*$/i.test(
-      text,
-    )
-  ) {
-    return true;
-  }
-
-  return awaitingConfirmation && /^\s*no\s*[.!]?\s*$/i.test(text);
-}
 
 /**
  * Punto central del chat.
@@ -56,7 +44,25 @@ export async function processChatMessage(input: OrchestratorInput): Promise<Chat
   }
 
   if (activeDraft) {
-    if (isCancellationMessage(text, activeDraft.status === "AWAITING_CONFIRMATION")) {
+    let history: Array<{ role: string; content: string }> = [];
+    try {
+      const { data } = await supabase
+        .from("messages")
+        .select("role, content, created_at")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: false })
+        .limit(8);
+      history = (data ?? [])
+        .slice(1)
+        .reverse()
+        .map((message) => ({ role: message.role, content: message.content }));
+    } catch (error) {
+      console.error("[chat-flow] Error reading draft context:", error);
+    }
+
+    const decision = await decideDraftTurn({ text, draft: activeDraft, history });
+
+    if (decision.action === "cancel_draft") {
       await cancelTransactionDraft(supabase, {
         id: activeDraft.id,
         userId,
@@ -68,7 +74,11 @@ export async function processChatMessage(input: OrchestratorInput): Promise<Chat
       };
     }
 
-    if (shouldInterruptTransactionDraft(text)) {
+    if (
+      decision.action === "support_or_sensitive" ||
+      decision.action === "financial_query" ||
+      decision.action === "general_question"
+    ) {
       const supportResult = await runOrchestrator(input);
 
       return {
@@ -80,7 +90,47 @@ export async function processChatMessage(input: OrchestratorInput): Promise<Chat
       };
     }
 
-    if (isDraftCorrectionMessage(text)) {
+    if (decision.action === "new_transaction") {
+      return {
+        reply:
+          "Detecté una transacción nueva y no la mezclé con la pendiente. " +
+          "Descarta primero el borrador anterior si quieres comenzar la nueva; el borrador actual sigue guardado.",
+        draft: { ...activeDraft, needs: activeDraft.needs },
+        draft_id: activeDraft.id,
+      };
+    }
+
+    if (decision.action === "replace_draft" && decision.currentRequestText?.trim()) {
+      await cancelTransactionDraft(supabase, { id: activeDraft.id, userId });
+      const replacement = await processChatMessage({
+        ...input,
+        text: decision.currentRequestText.trim(),
+      });
+      return { ...replacement, cancelled_draft_id: activeDraft.id };
+    }
+
+    if (decision.action === "ambiguous") {
+      return {
+        reply:
+          "No quiero mezclar ese mensaje con la transacción pendiente. " +
+          "¿Deseas completar el borrador, corregirlo, descartarlo o hacer otra consulta?",
+        draft: { ...activeDraft, needs: activeDraft.needs },
+        draft_id: activeDraft.id,
+      };
+    }
+
+    if (decision.action === "confirm_draft") {
+      return {
+        reply:
+          activeDraft.status === "AWAITING_CONFIRMATION"
+            ? "La transacción está lista. Usa el botón Confirmar para guardarla de forma segura."
+            : "Todavía faltan datos antes de poder confirmar la transacción.",
+        draft: { ...activeDraft, needs: activeDraft.needs },
+        draft_id: activeDraft.id,
+      };
+    }
+
+    if (decision.action === "correct_draft" || isDraftCorrectionMessage(text)) {
       const revised = await reviseExpenseFlow({
         text,
         userCategories,
@@ -116,6 +166,7 @@ export async function processChatMessage(input: OrchestratorInput): Promise<Chat
       const completed = await completeExpenseFlow({
         text,
         userCategories,
+        history,
         currentDraft: {
           type: activeDraft.type,
           amount: activeDraft.amount,

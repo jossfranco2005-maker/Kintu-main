@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { looksLikeSupportRequest } from "@/lib/agents/support-routing";
+import { isCompatibleSupportChoice } from "@/lib/agents/support-flow.server";
 
 describe("support intent routing", () => {
   it("detecta una pregunta sobre cambio de correo", () => {
@@ -40,5 +41,19 @@ describe("investment education routing", () => {
     "Quiero invertir en la bolsa y no sé cómo hacerlo",
   ])("envía educación financiera a soporte aprobado: %s", (message) => {
     expect(looksLikeSupportRequest(message)).toBe(true);
+  });
+});
+
+describe("pending support choice compatibility", () => {
+  it.each(["1", "abre un caso", "prefiero información general"])(
+    "acepta una selección real: %s",
+    (text) => expect(isCompatibleSupportChoice(text)).toBe(true),
+  );
+
+  it.each([
+    "Olvida esa pregunta. ¿Cuánto he gastado en comida este mes?",
+    "Ya no quiero abrir un caso. Registra un gasto de 5 dólares en Uber.",
+  ])("abandona la elección cuando cambia el tema: %s", (text) => {
+    expect(isCompatibleSupportChoice(text)).toBe(false);
   });
 });
