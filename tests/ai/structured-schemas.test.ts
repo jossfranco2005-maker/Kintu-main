@@ -35,6 +35,7 @@ describe("strict structured-output contracts", () => {
   it("exige el plan financiero completo", () => {
     expectEveryKeyRequired(FinancialResponsePlanSchema, {
       fact_ids: ["net"],
+      coverage: "single",
       style: "brief",
       format: "sentence",
       answer: "Balance verificado.",
@@ -56,6 +57,7 @@ describe("strict structured-output contracts", () => {
       state: "emotion_only",
       category: null,
       priority: null,
+      subject: "current_user",
       reason: "Emoción aislada",
     });
   });

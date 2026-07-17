@@ -78,10 +78,15 @@ const NEGATION_PATTERN =
   /\b(no (?:gaste|pague|compre|recibi|cobre|gane|me cobraron|me pagaron|fue un gasto|fue un ingreso)|nunca (?:gaste|pague|recibi|cobre)|casi (?:gasto|gaste|pago|pague|compro|compre))\b/i;
 
 const INCOME_PATTERN =
-  /\b(gane|gano|ganara|ganare|ganancia|me pagan|me pagaran|me pagaron|me pago|me van a pagar|me depositaron|recibi|recibire|recibiera|recibido|cobre|cobrare|cobrara|cobrado|me entro|me entraron|me cayo|me llegaron|vendi|venta|sueldo|salario|ingreso|me consignaron)\b/i;
+  /\b(gane|gano|ganara|ganare|ganancia|me pagan|me pagaran|me pagaron|me pago|me van a pagar|me deposito|me depositaron|recibi|recibire|recibiera|recibido|cobre|cobrare|cobrara|cobrado|me entro|me entraron|me cayo|me llegaron|vendi|venta|sueldo|salario|ingreso|me consignaron)\b/i;
 
 const EXPENSE_PATTERN =
   /\b(gaste|gasto|gastara|gastare|gastado|pague|pagara|pagare|pagado|compre|comprara|comprare|comprado|me cobraron|me costo|se me fueron|solte|desembolse|compra)\b/i;
+
+const OCCURRED_INCOME_PATTERN =
+  /\b(gane|gano|me pagaron|me pago|me deposito|me depositaron|recibi|cobre|me entro|me entraron|me cayo|me llegaron|vendi|me consignaron)\b/i;
+const OCCURRED_EXPENSE_PATTERN =
+  /\b(gaste|gasto|pague|pagado|compre|comprado|me cobraron|me costo|se me fueron|solte|desembolse)\b/i;
 
 const COMPLAINT_PATTERN =
   /\b(me cobraron dos veces|cobro duplicado|cargo duplicado|me debitaron de mas|la transferencia no llego|no me llego la transferencia|desaparecio (?:mi )?dinero|me falta dinero|esa compra no fue mia|ese cargo no fue mio)\b/i;
@@ -166,12 +171,20 @@ export function analyzeMessageWithRules(text: string): MessageUnderstanding | nu
 
   if (!normalized) return null;
 
+  const transactionType = detectTransactionType(normalized);
+  const hasOccurredTransactionEvidence =
+    transactionType === "income"
+      ? OCCURRED_INCOME_PATTERN.test(normalized)
+      : transactionType === "expense"
+        ? OCCURRED_EXPENSE_PATTERN.test(normalized)
+        : false;
+
   const sensitivity = classifySensitivity(text);
   if (
     sensitivity ||
     requestsPersonalizedInvestmentAdvice(text) ||
     COMPLAINT_PATTERN.test(normalized) ||
-    looksLikeSupportRequest(text)
+    (looksLikeSupportRequest(text) && !hasOccurredTransactionEvidence)
   ) {
     return {
       intent: "support",
@@ -268,8 +281,12 @@ export function analyzeMessageWithRules(text: string): MessageUnderstanding | nu
     };
   }
 
-  const transactionType = detectTransactionType(normalized);
-  if (transactionType) {
+  if (
+    transactionType &&
+    (hasOccurredTransactionEvidence ||
+      FUTURE_PATTERN.test(normalized) ||
+      HYPOTHETICAL_PATTERN.test(normalized))
+  ) {
     const negated = NEGATION_PATTERN.test(normalized);
     const future = FUTURE_PATTERN.test(normalized);
     const hypothetical = HYPOTHETICAL_PATTERN.test(normalized);

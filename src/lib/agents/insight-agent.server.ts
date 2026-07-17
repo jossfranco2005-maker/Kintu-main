@@ -28,7 +28,8 @@ export const HypotheticalExpenseSchema = z.object({
 });
 
 export const FinancialResponsePlanSchema = z.object({
-  fact_ids: z.array(z.string()).max(4),
+  fact_ids: z.array(z.string()).max(20),
+  coverage: z.enum(["single", "summary", "exhaustive"]),
   style: z.enum(["brief", "normal", "simple", "explanatory"]),
   format: z.enum([
     "sentence",
@@ -39,7 +40,7 @@ export const FinancialResponsePlanSchema = z.object({
   ]),
   answer: z.string().max(1000).nullable(),
   introduction: z.string().max(400).nullable(),
-  items: z.array(z.string().max(400)).max(6),
+  items: z.array(z.string().max(400)).max(20),
   closing: z.string().max(400).nullable(),
 });
 
@@ -140,6 +141,40 @@ export function validateFinancialResponsePlan(params: {
   const selected = [...new Set(plan.fact_ids)].map((id) => byId.get(id)!);
   const parts = responseParts(plan);
   if (parts.length === 0) return null;
+  if (plan.coverage === "single" && selected.length !== 1) return null;
+
+  if (plan.coverage === "exhaustive") {
+    const selectedExpenseCategories = selected.filter((fact) =>
+      fact.id.startsWith("expense_category:"),
+    );
+    const allExpenseCategories = availableFacts.filter((fact) =>
+      fact.id.startsWith("expense_category:"),
+    );
+    if (
+      allExpenseCategories.length === 0 ||
+      selectedExpenseCategories.length !== allExpenseCategories.length ||
+      allExpenseCategories.some((fact) => !selected.some((item) => item.id === fact.id))
+    ) {
+      return null;
+    }
+
+    const combinedText = parts.join("\n").toLocaleLowerCase("es");
+    if (
+      selectedExpenseCategories.some(
+        (fact) => !combinedText.includes(fact.id.slice("expense_category:".length).toLowerCase()),
+      )
+    ) {
+      return null;
+    }
+
+    const categoryTotal = selectedExpenseCategories.reduce(
+      (sum, fact) => sum + (numericValues(fact.text).at(0) ?? 0),
+      0,
+    );
+    const expenseTotalFact = availableFacts.find((fact) => fact.id === "total_expense");
+    const expenseTotal = expenseTotalFact ? numericValues(expenseTotalFact.text).at(0) : undefined;
+    if (expenseTotal === undefined || Math.abs(categoryTotal - expenseTotal) > 0.01) return null;
+  }
   if (
     selected.length === 1 &&
     ["bullet_list", "numbered_steps", "summary_with_bullets"].includes(plan.format)
@@ -184,6 +219,13 @@ export function validateFinancialResponsePlan(params: {
   }
 
   return text.trim() ? { selected, text: text.trim() } : null;
+}
+
+function renderCompleteExpenseCategoryBreakdown(facts: VerifiedFinancialFact[]): string {
+  return facts
+    .filter((fact) => fact.id.startsWith("expense_category:"))
+    .map((fact) => `- ${fact.text}`)
+    .join("\n");
 }
 
 export async function buildHypotheticalBudgetReply(params: {
@@ -411,6 +453,9 @@ Hechos disponibles:
 ${verifiedFacts.map((fact) => `${fact.id}: ${fact.text}`).join("\n")}
 
 Usa solo IDs existentes. Para seguimientos o preguntas sobre una conclusión anterior, usa el historial.
+- coverage=single para una sola cifra; summary para una selección o un top solicitado; exhaustive cuando pide el desglose o distribución completa por categoría.
+- Con coverage=exhaustive incluye todos los IDs expense_category disponibles, sin omitir ninguno.
+- Si pide exactamente las tres categorías principales, usa coverage=summary y exactamente tres IDs expense_category.
 - style=brief si pide ir al grano; simple si pide lenguaje sencillo; explanatory si pregunta por qué o cómo se llegó a una conclusión.
 - format=sentence para una respuesta concreta; summary_with_bullets para varios indicadores; bullet_list para datos comparables; numbered_steps solo para un procedimiento real; short_paragraph para una explicación conceptual.
 - answer, introduction, items y closing solo pueden parafrasear los hechos seleccionados.
@@ -420,6 +465,11 @@ Usa solo IDs existentes. Para seguimientos o preguntas sobre una conclusión ant
     });
     const validated = validateFinancialResponsePlan({ plan, availableFacts: verifiedFacts });
     if (validated) return validated.text;
+
+    if (plan.coverage === "exhaustive") {
+      const completeBreakdown = renderCompleteExpenseCategoryBreakdown(verifiedFacts);
+      if (completeBreakdown) return completeBreakdown;
+    }
 
     const byId = new Map(verifiedFacts.map((fact) => [fact.id, fact]));
     const selected = [...new Set(plan.fact_ids)]

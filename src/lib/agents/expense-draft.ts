@@ -1,5 +1,6 @@
 import type { ExpenseDraft, MissingExpenseField } from "@/lib/agents/schemas";
 import { CATEGORIES, formatMoney } from "@/lib/finance/categorize";
+import { formatIsoDateInSpanish } from "@/lib/finance/date";
 
 const CATEGORY_LABELS: Record<string, string> = {
   comida: "Comida",
@@ -88,13 +89,13 @@ function missingFieldLabel(field: MissingExpenseField, type: "income" | "expense
   }
 }
 
-function understoodSummary(draft: ExpenseDraft): string {
+export function understoodSummary(draft: ExpenseDraft): string {
   const kind = draft.type === "income" ? "ingreso" : "gasto";
   const parts: string[] = [];
 
   if (draft.amount) parts.push(`de ${formatMoney(draft.amount)}`);
   if (draft.category && draft.type === "expense") parts.push(`en ${draft.category}`);
-  if (draft.date) parts.push(`con fecha ${draft.date}`);
+  if (draft.date) parts.push(`con fecha ${formatIsoDateInSpanish(draft.date)}`);
   if (draft.merchant) {
     parts.push(
       draft.type === "income" ? `proveniente de ${draft.merchant}` : `en ${draft.merchant}`,

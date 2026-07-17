@@ -136,6 +136,31 @@ describe("expense flow integration", () => {
     expect(result.draft).toMatchObject({ type: "income", ...expected });
   });
 
+  it("conserva una categoría de ingreso respaldada en una formulación natural", async () => {
+    generateStructuredMock.mockResolvedValue({
+      type: "income",
+      amount: 95,
+      currency: "USD",
+      date: "2026-07-17",
+      category: "diseño",
+      merchant: "Andrea",
+      description: "diseño de logo",
+    });
+    const result = await handleExpenseFlow({
+      text: "Andrea me pagó 95 dólares por diseñarle un logo hoy.",
+      transactionType: "income",
+      today: "2026-07-17",
+    });
+    expect(result.draft).toMatchObject({
+      type: "income",
+      amount: 95,
+      category: "diseño",
+      merchant: "Andrea",
+      date: "2026-07-17",
+      needs: [],
+    });
+  });
+
   it("usa otros cuando un ingreso no contiene evidencia de categoría", async () => {
     generateStructuredMock.mockResolvedValue({
       type: "income",
@@ -232,6 +257,8 @@ describe("expense flow integration", () => {
       merchant: "vendedor del carro",
       needs: [],
     });
+    expect(result.reply).toContain("20 de julio de 2025");
+    expect(result.reply).not.toContain("2025-07-20");
   });
 
   it("usa la corrección determinista sin consultar al LLM", async () => {

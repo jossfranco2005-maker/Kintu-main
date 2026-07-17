@@ -89,6 +89,44 @@ export type SaveConfirmedTransactionResult = {
 };
 
 const MAX_STEPS = 8;
+const TRANSACTION_CLARIFICATION_REPLY =
+  "No estoy completamente seguro de lo que deseas hacer. ¿Quieres registrar un ingreso, un gasto, crear un presupuesto o pedir ayuda?";
+
+function recoverImmediateClarifiedRequest(params: {
+  currentText: string;
+  history: Array<{ role: string; content: string }>;
+  intent: string;
+  transactionType: "income" | "expense" | null;
+}): string | null {
+  const { currentText, history, intent, transactionType } = params;
+  if (currentText.trim().split(/\s+/).length > 8) return null;
+  if (intent !== "transaction" || !transactionType) return null;
+
+  let lastAssistantIndex = -1;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    if (history[index]?.role === "assistant") {
+      lastAssistantIndex = index;
+      break;
+    }
+  }
+  if (
+    lastAssistantIndex < 1 ||
+    history[lastAssistantIndex]?.content !== TRANSACTION_CLARIFICATION_REPLY
+  ) {
+    return null;
+  }
+  let previousUser: { role: string; content: string } | undefined;
+  for (let index = lastAssistantIndex - 1; index >= 0; index -= 1) {
+    const message = history[index];
+    if (message?.role === "user" && message.content.trim()) {
+      previousUser = message;
+      break;
+    }
+  }
+  if (!previousUser) return null;
+
+  return `${previousUser.content.trim()}\nAclaración inmediata del usuario: ${currentText.trim()}`;
+}
 
 async function handleBudget(input: OrchestratorInput): Promise<OrchestratorResult> {
   const { text, supabase, userId } = input;
@@ -253,11 +291,20 @@ export async function runOrchestrator(
     console.error("[orchestrator] Error loading recent messages:", err);
   }
 
-  const understanding = await understandMessage(input.text, recentMessages);
+  let understanding = await understandMessage(input.text, recentMessages);
+  const recoveredRequest = recoverImmediateClarifiedRequest({
+    currentText: input.text,
+    history: recentMessages,
+    intent: understanding.intent,
+    transactionType: understanding.transactionType,
+  });
+  if (recoveredRequest) {
+    understanding = await understandMessage(recoveredRequest, recentMessages);
+  }
   const effectiveText =
     understanding.dismissPendingState && understanding.currentRequestText?.trim()
       ? understanding.currentRequestText.trim()
-      : input.text;
+      : (recoveredRequest ?? input.text);
   const effectiveInput = effectiveText === input.text ? input : { ...input, text: effectiveText };
   const action: UnderstandingAction = decideUnderstandingAction(understanding);
 
@@ -300,8 +347,7 @@ export async function runOrchestrator(
       };
     case "clarify":
       return {
-        reply:
-          "No estoy completamente seguro de lo que deseas hacer. ¿Quieres registrar un ingreso, un gasto, crear un presupuesto o pedir ayuda?",
+        reply: TRANSACTION_CLARIFICATION_REPLY,
       };
     default:
       break;

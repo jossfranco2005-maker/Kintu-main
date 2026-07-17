@@ -85,11 +85,88 @@ describe("validated adaptive financial presentation", () => {
     },
   ];
 
+  it("valida un desglose exhaustivo de cinco categorías cuya suma coincide con el total", () => {
+    const categoryFacts = [
+      { id: "total_expense", text: "Gastos del mes: USD 683.00." },
+      { id: "expense_category:comida", text: "Gasto en comida: USD 370.00." },
+      { id: "expense_category:servicios", text: "Gasto en servicios: USD 120.00." },
+      { id: "expense_category:otros", text: "Gasto en otros: USD 90.00." },
+      { id: "expense_category:transporte", text: "Gasto en transporte: USD 59.00." },
+      {
+        id: "expense_category:entretenimiento",
+        text: "Gasto en entretenimiento: USD 44.00.",
+      },
+    ];
+    const result = validateFinancialResponsePlan({
+      availableFacts: categoryFacts,
+      plan: {
+        fact_ids: categoryFacts.slice(1).map((fact) => fact.id),
+        coverage: "exhaustive",
+        style: "normal",
+        format: "bullet_list",
+        answer: null,
+        introduction: "Desglose completo:",
+        items: categoryFacts.slice(1).map((fact) => fact.text),
+        closing: null,
+      },
+    });
+    expect(result?.selected).toHaveLength(5);
+    expect(result?.text).toContain("entretenimiento");
+    expect(result?.text).toContain("USD 44.00");
+  });
+
+  it("rechaza un desglose exhaustivo que omite una categoría", () => {
+    const categoryFacts = [
+      { id: "total_expense", text: "Gastos del mes: USD 683.00." },
+      { id: "expense_category:comida", text: "Gasto en comida: USD 639.00." },
+      { id: "expense_category:entretenimiento", text: "Gasto en entretenimiento: USD 44.00." },
+    ];
+    expect(
+      validateFinancialResponsePlan({
+        availableFacts: categoryFacts,
+        plan: {
+          fact_ids: ["expense_category:comida"],
+          coverage: "exhaustive",
+          style: "normal",
+          format: "sentence",
+          answer: "Gasto en comida: USD 639.00.",
+          introduction: null,
+          items: [],
+          closing: null,
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it("permite exactamente tres categorías en un resumen top tres", () => {
+    const categoryFacts = ["comida", "servicios", "transporte", "entretenimiento"].map(
+      (category, index) => ({
+        id: `expense_category:${category}`,
+        text: `Gasto en ${category}: USD ${400 - index * 50}.00.`,
+      }),
+    );
+    const result = validateFinancialResponsePlan({
+      availableFacts: categoryFacts,
+      plan: {
+        fact_ids: categoryFacts.slice(0, 3).map((fact) => fact.id),
+        coverage: "summary",
+        style: "normal",
+        format: "bullet_list",
+        answer: null,
+        introduction: "Tus tres categorías principales:",
+        items: categoryFacts.slice(0, 3).map((fact) => fact.text),
+        closing: null,
+      },
+    });
+    expect(result?.selected).toHaveLength(3);
+  });
+
   it("renderiza un resumen legible con viñetas de texto plano", () => {
     const result = validateFinancialResponsePlan({
       availableFacts: facts,
       plan: {
         fact_ids: ["total_income", "total_expense", "net"],
+        coverage: "summary",
         style: "normal",
         format: "summary_with_bullets",
         answer: null,
@@ -106,6 +183,7 @@ describe("validated adaptive financial presentation", () => {
       availableFacts: facts,
       plan: {
         fact_ids: ["net"],
+        coverage: "single",
         style: "brief",
         format: "sentence",
         answer: "Tu balance neto es USD 750.00.",
@@ -123,6 +201,7 @@ describe("validated adaptive financial presentation", () => {
       availableFacts: facts,
       plan: {
         fact_ids: ["total_income"],
+        coverage: "single",
         style: "brief",
         format: "sentence",
         answer: "Tus ingresos son USD 1.000,00.",
@@ -140,6 +219,7 @@ describe("validated adaptive financial presentation", () => {
         availableFacts: facts,
         plan: {
           fact_ids: ["net"],
+          coverage: "single",
           style: "normal",
           format: "sentence",
           answer: "Tu balance es USD 999.00.",
@@ -157,6 +237,7 @@ describe("validated adaptive financial presentation", () => {
         availableFacts: facts,
         plan: {
           fact_ids: ["inventado"],
+          coverage: "single",
           style: "normal",
           format: "sentence",
           answer: "No hay datos.",
@@ -174,6 +255,7 @@ describe("validated adaptive financial presentation", () => {
         availableFacts: facts,
         plan: {
           fact_ids: ["budget:comida"],
+          coverage: "single",
           style: "brief",
           format: "sentence",
           answer: "Tu presupuesto de comida requiere atención.",

@@ -31,6 +31,7 @@ export const SupportSituationSchema = z.object({
     .enum(["fraude", "reclamo", "humano", "cargo_desconocido", "acceso_cuenta"])
     .nullable(),
   priority: z.enum(["high", "medium", "low"]).nullable(),
+  subject: z.enum(["current_user", "third_party", "unclear"]),
   reason: z.string().max(240),
 });
 
@@ -529,10 +530,18 @@ export async function handleSupportFlow(input: OrchestratorInput): Promise<Orche
 - concrete_sensitive_incident: describe fraude, cargo no reconocido, cobro duplicado, acceso comprometido o transferencia problemática.
 - explicit_human_request: pide inequívocamente hablar con una persona o abrir un caso.
 - general_support: cualquier otra consulta de soporte.
+- subject=current_user cuando el hecho o emoción corresponde al usuario autenticado; third_party cuando corresponde a otra persona; unclear si no puede determinarse.
 
 No conviertas la emoción aislada ni emociones de terceros en un incidente del usuario.
 Mensaje: ${text}`,
     });
+
+    if (situation.subject === "third_party") {
+      return {
+        reply:
+          "Entiendo que esa persona esté preocupada. Puedo darte orientación general, pero no puedo revisar sus movimientos desde tu cuenta; para analizar sus datos tendría que usar su propia cuenta.",
+      };
+    }
 
     if (situation.state === "emotion_only") {
       return {

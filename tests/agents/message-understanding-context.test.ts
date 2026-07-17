@@ -104,4 +104,22 @@ describe("contextual message understanding", () => {
     const result = await understandMessage("Compra de 20 dólares el 20 de julio.");
     expect(result).toMatchObject({ intent: "transaction", occurred: false });
   });
+
+  it.each([
+    "La empresa donde trabajo me depositó 800 dólares de sueldo.",
+    "Me consignaron 300 por una venta.",
+  ])("usa evidencia fuerte de ingreso cuando el modelo devuelve unknown: %s", async (text) => {
+    generateStructuredMock.mockResolvedValue({
+      ...base,
+      intent: "unknown",
+      speechAct: "unknown",
+      confidence: 0.4,
+    });
+    await expect(understandMessage(text)).resolves.toMatchObject({
+      intent: "transaction",
+      transactionType: "income",
+      occurred: true,
+      source: "rules",
+    });
+  });
 });

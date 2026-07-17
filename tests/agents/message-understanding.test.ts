@@ -136,6 +136,11 @@ describe("message understanding rules", () => {
     expect(analyze("Hola")).toMatchObject({ intent: "smalltalk" });
   });
 
+  it.each(["El sueldo suele pagarse cada fin de mes.", "¿Qué significa sueldo neto?"])(
+    "no convierte una mención general de sueldo en transacción: %s",
+    (text) => expect(analyzeMessageWithRules(text)).toBeNull(),
+  );
+
   it.each(["Crea un presupuesto de 200", "Ajusta el límite de comida"])(
     "valida una acción explícita de presupuesto: %s",
     (text) => expect(hasExplicitBudgetMutationAction(text)).toBe(true),

@@ -5,7 +5,11 @@ import {
   extractDeterministicExpenseCorrection,
   type ExpenseCorrectionPatch,
 } from "@/lib/agents/expense-correction";
-import { buildDraftProgressReply, getMissingExpenseFields } from "@/lib/agents/expense-draft";
+import {
+  buildDraftProgressReply,
+  getMissingExpenseFields,
+  understoodSummary,
+} from "@/lib/agents/expense-draft";
 import {
   resolveTransactionFields,
   type TransactionFieldPatch,
@@ -105,7 +109,7 @@ function buildExpenseFlowResult(
   const kind = draft.type === "income" ? "ingreso" : "gasto";
 
   return {
-    reply: `${prefix}Preparé este ${kind}. Revisa los datos y confirma si están correctos:`,
+    reply: `${prefix}${understoodSummary(draft)} Preparé este ${kind}. Revisa los datos y confirma si están correctos:`,
     draft: {
       ...draft,
       needs: [],

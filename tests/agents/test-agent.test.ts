@@ -77,6 +77,7 @@ describe("Kintu conversational financial agent", () => {
 
     generateStructuredMock.mockResolvedValue({
       fact_ids: ["income_category:salario", "income_category:freelance"],
+      coverage: "summary",
       style: "normal",
       format: "short_paragraph",
       answer:

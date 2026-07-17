@@ -42,6 +42,19 @@ function mergeWithRuleSafety(
     return rules;
   }
 
+  if ((llm.intent === "unknown" || llm.confidence < 0.6) && rules.confidence >= 0.9) {
+    return {
+      ...rules,
+      negated: rules.negated || llm.negated,
+      future: rules.future || llm.future,
+      hypothetical: rules.hypothetical || llm.hypothetical,
+      multipleOperations: rules.multipleOperations || llm.multipleOperations,
+      budgetAction: rules.budgetAction ?? llm.budgetAction,
+      dismissPendingState: llm.dismissPendingState,
+      currentRequestText: llm.currentRequestText,
+    };
+  }
+
   const conflict =
     rules.intent !== "unknown" && llm.intent !== "unknown" && rules.intent !== llm.intent;
 

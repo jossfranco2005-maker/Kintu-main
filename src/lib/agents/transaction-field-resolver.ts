@@ -41,6 +41,15 @@ function normalize(value: string): string {
     .trim();
 }
 
+function hasLexicalCategoryEvidence(text: string, category: string): boolean {
+  const normalizedCategory = normalize(category);
+  if (normalizedCategory.length < 5) return false;
+  const stem = normalizedCategory.slice(0, 5);
+  return normalize(text)
+    .split(/[^a-z0-9]+/)
+    .some((token) => token.length >= 5 && token.startsWith(stem));
+}
+
 export function extractPositiveAmount(text: string): number | null {
   const withoutDates = text
     .replace(/\b\d{4}-\d{2}-\d{2}\b/g, " ")
@@ -158,7 +167,11 @@ export function resolveCategoryCandidate(params: {
   if (allowNewCategory && llmCategory) {
     const normalizedModelCategory = normalize(llmCategory);
     const normalizedText = normalize(text);
-    if (expectingCategory || normalizedText.includes(normalizedModelCategory)) {
+    if (
+      expectingCategory ||
+      normalizedText.includes(normalizedModelCategory) ||
+      hasLexicalCategoryEvidence(text, llmCategory)
+    ) {
       return normalizeNewUserCategory(llmCategory);
     }
   }

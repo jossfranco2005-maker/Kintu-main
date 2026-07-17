@@ -51,6 +51,7 @@ describe("support situation understanding", () => {
         state: "emotion_only",
         category: null,
         priority: null,
+        subject: "current_user",
         reason: "Emoción sin incidente",
       });
       const from = vi.fn(() => {
@@ -83,5 +84,33 @@ describe("support situation understanding", () => {
     expect(result.ticket_id).toBe("ticket-12345678");
     expect(ticketInsert).toHaveBeenCalledTimes(1);
     expect(result.reply).toContain("revisión humana");
+  });
+
+  it.each([
+    "Mi hermana está preocupada por sus gastos.",
+    "Un amigo está furioso por su cuenta.",
+    "Mi pareja no entiende su presupuesto.",
+    "Un compañero de trabajo está molesto.",
+  ])("protege la privacidad financiera de un tercero: %s", async (text) => {
+    generateStructuredMock.mockResolvedValue({
+      state: "emotion_only",
+      category: null,
+      priority: null,
+      subject: "third_party",
+      reason: "La situación corresponde a otra persona",
+    });
+    const from = vi.fn(() => {
+      throw new Error("No debe consultar datos ni persistencia");
+    });
+    const result = await handleSupportFlow({
+      text,
+      userId: "user-1",
+      conversationId: "conversation-1",
+      supabase: { from } as unknown as SupabaseClient,
+    });
+    expect(result.ticket_id).toBeUndefined();
+    expect(result.reply).toContain("no puedo revisar sus movimientos desde tu cuenta");
+    expect(result.reply).toContain("su propia cuenta");
+    expect(from).not.toHaveBeenCalled();
   });
 });
