@@ -5,6 +5,7 @@ import {
   extractDeterministicExpenseCorrection,
 } from "@/lib/agents/expense-correction";
 import type { ExpenseDraft } from "@/lib/agents/schemas";
+import { shiftIsoDate, todayInEcuador } from "@/lib/finance/date";
 
 const baseDraft: ExpenseDraft = {
   type: "expense",
@@ -58,6 +59,32 @@ describe("expense draft corrections", () => {
       amount: 20,
       merchant: "Burger King",
     });
+  });
+
+  it("delimita la categoría cuando la misma oración corrige otros campos", () => {
+    const today = todayInEcuador();
+    const draft: ExpenseDraft = {
+      type: "expense",
+      amount: 9,
+      currency: "USD",
+      date: shiftIsoDate(today, -1),
+      category: "comida",
+      merchant: "una cafetería",
+      description: null,
+    };
+    const patch = extractDeterministicExpenseCorrection(
+      "Cambia el monto a 8 dólares, la categoría a entretenimiento y la fecha a hoy.",
+      { currentDraft: draft },
+    );
+    const corrected = applyExpenseCorrection(draft, patch);
+
+    expect(corrected.amount).toBe(8);
+    expect(corrected.category).toBe("entretenimiento");
+    expect(corrected.date).toBe(today);
+    expect(corrected.merchant).toBe("una cafetería");
+    expect(corrected.type).toBe("expense");
+    expect(corrected.description).toBeNull();
+    expect(corrected.currency).toBe("USD");
   });
 });
 

@@ -90,7 +90,9 @@ function parseContrast(text: string): { previous: string; next: string } | null 
 
 function extractCorrectedCategory(text: string, context: ExpenseCorrectionContext): string | null {
   const userCategories = context.userCategories ?? new Set<string>();
-  const explicit = text.match(/\b(?:categor[ií]a)\s*(?:es|fue|a|por|:)?\s*([^.!?]+)$/i)?.[1];
+  const explicit = text.match(
+    /\b(?:categor[ií]a)\s*(?:es|fue|a|por|:)?\s*([^,;.!?]+?)(?=\s*(?:[,;]|(?:y\s+)?(?:el\s+)?(?:monto|importe|valor)\b|(?:y\s+)?(?:la\s+)?(?:fecha|descripci[oó]n|nota)\b|(?:y\s+)?(?:el\s+)?(?:d[ií]a|comercio|lugar|origen|destinatario|detalle)\b|[.!?]|$))/i,
+  )?.[1];
   if (explicit) {
     return (
       detectUserBudgetCategory(explicit, userCategories) ??
