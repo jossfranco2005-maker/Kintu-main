@@ -4,7 +4,7 @@
 // nuevo agrega una hoja (con animación "pop"), cada gasto nuevo marchita
 // y quita una hoja (tono seco, sin rojo). El personaje también salta al
 // recibir un ingreso y decae levemente al registrar un gasto.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 type KintuAvatarProps = {
   savingsRate: number; // 0-100 — solo afecta mejillas/ánimo, no el conteo de hojas
@@ -72,6 +72,11 @@ export function KintuAvatar({
   const prevIncomeCount = useRef(incomeCount ?? 0);
   const prevExpenseCount = useRef(expenseCount ?? 0);
 
+  // Generar IDs únicos para los gradientes de este avatar específico
+  const uniqueId = useId().replace(/:/g, "-");
+  const bodyGradId = `kintuBody-${uniqueId}`;
+  const leafGradId = `kintuLeaf-${uniqueId}`;
+
   // --- Ingreso(s): agrega tantas hojas como transacciones nuevas haya ---
   useEffect(() => {
     let delta = 0;
@@ -136,22 +141,22 @@ export function KintuAvatar({
   return (
     <div
       className={`kintu-avatar-wrap ${celebrate ? "kintu-jump" : ""} ${sad ? "kintu-droop" : ""}`}
-      style={{ width: size, height: size, display: "inline-block" }}
+      style={{ width: size, height: size, maxWidth: "100%", maxHeight: "100%", display: "inline-block" }}
     >
       <svg
         viewBox="0 0 200 200"
-        width={size}
-        height={size}
+        width="100%"
+        height="100%"
         className={className}
         role="img"
         aria-label="Avatar del árbol de Kintu"
       >
         <defs>
-          <radialGradient id="kintuBody" cx="40%" cy="30%" r="75%">
+          <radialGradient id={bodyGradId} cx="40%" cy="30%" r="75%">
             <stop offset="0%" stopColor="#E4C79A" />
             <stop offset="100%" stopColor="#C9A06B" />
           </radialGradient>
-          <linearGradient id="kintuLeaf" x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id={leafGradId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#7BCB80" />
             <stop offset="100%" stopColor="#4E9E5A" />
           </linearGradient>
@@ -185,7 +190,7 @@ export function KintuAvatar({
         />
 
         {/* cuerpo */}
-        <ellipse cx="100" cy="128" rx="60" ry="54" fill="url(#kintuBody)" />
+        <ellipse cx="100" cy="128" rx="60" ry="54" fill={`url(#${bodyGradId})`} />
         <ellipse cx="88" cy="110" rx="22" ry="16" fill="#F1DEB8" opacity="0.45" />
 
         {/* motas del cuerpo */}
@@ -274,7 +279,7 @@ export function KintuAvatar({
                   cy={l.y}
                   rx={l.r}
                   ry={l.r * 1.3}
-                  fill={isWithering ? WITHER_COLOR : "url(#kintuLeaf)"}
+                  fill={isWithering ? WITHER_COLOR : `url(#${leafGradId})`}
                   opacity={0.85 + l.tone * 0.15}
                   transform={`rotate(${l.rot} ${l.x} ${l.y})`}
                 />

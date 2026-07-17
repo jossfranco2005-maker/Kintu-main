@@ -234,61 +234,92 @@ function AuthenticatedLayout() {
             className="w-64 max-w-[80vw] h-full bg-card p-6 flex flex-col justify-between border-r border-[#E4E0F5]"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="space-y-6">
-              <div className="flex items-center gap-2 pb-4 border-b border-hairline">
-                <div className="w-8 h-8 rounded-xl bg-[#7C6FE0]/10 flex items-center justify-center text-[#7C6FE0]">
-                  <Leaf className="w-4 h-4 fill-[#7C6FE0]" />
+            <div className="flex flex-col flex-1 min-h-0 overflow-y-auto -mx-2 px-2 scrollbar-none">
+              <div className="space-y-6 pb-6">
+                <div className="flex items-center gap-2 pb-4 border-b border-hairline">
+                  <div className="w-8 h-8 rounded-xl bg-[#7C6FE0]/10 flex items-center justify-center text-[#7C6FE0]">
+                    <Leaf className="w-4 h-4 fill-[#7C6FE0]" />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="font-serif text-base font-semibold text-[#4C3A8C] dark:text-[#B9A9F5]">
+                      Kintu
+                    </span>
+                    <span className="text-[9px] text-muted-foreground">Tu libertad financiera</span>
+                  </div>
                 </div>
-                <div className="flex flex-col">
-                  <span className="font-serif text-base font-semibold text-[#4C3A8C] dark:text-[#B9A9F5]">
-                    Kintu
-                  </span>
-                  <span className="text-[9px] text-muted-foreground">Tu libertad financiera</span>
-                </div>
-              </div>
 
-              <nav className="flex flex-col gap-1">
-                <MobileNavLink
+                <nav className="flex flex-col gap-1">
+                  <MobileNavLink
+                    to="/dashboard"
+                    icon={<LayoutDashboard className="w-4 h-4" />}
+                    label="Panel"
+                    onClick={() => setMobileMenuOpen(false)}
+                  />
+                  <MobileNavLink
+                    to="/chat"
+                    icon={<MessageCircle className="w-4 h-4" />}
+                    label="Chat"
+                    onClick={() => setMobileMenuOpen(false)}
+                  />
+                  <MobileNavLink
+                    to="/budgets"
+                    icon={<Wallet className="w-4 h-4" />}
+                    label="Presupuestos"
+                    onClick={() => setMobileMenuOpen(false)}
+                  />
+                  <MobileNavLink
+                    to="/movements"
+                    icon={<History className="w-4 h-4" />}
+                    label="Movimientos"
+                    onClick={() => setMobileMenuOpen(false)}
+                  />
+                  <MobileNavLink
+                    to="/notifications"
+                    icon={<Bell className="w-4 h-4" />}
+                    label="Notificaciones"
+                    badge={unreadCount}
+                    onClick={() => setMobileMenuOpen(false)}
+                  />
+                  <MobileNavLink
+                    to="/tickets"
+                    icon={<LifeBuoy className="w-4 h-4" />}
+                    label="Casos"
+                    onClick={() => setMobileMenuOpen(false)}
+                  />
+                </nav>
+
+                {/* "Tu árbol crece" widget móvil */}
+                <Link
                   to="/dashboard"
-                  icon={<LayoutDashboard className="w-4 h-4" />}
-                  label="Panel"
                   onClick={() => setMobileMenuOpen(false)}
-                />
-                <MobileNavLink
-                  to="/chat"
-                  icon={<MessageCircle className="w-4 h-4" />}
-                  label="Chat"
-                  onClick={() => setMobileMenuOpen(false)}
-                />
-                <MobileNavLink
-                  to="/budgets"
-                  icon={<Wallet className="w-4 h-4" />}
-                  label="Presupuestos"
-                  onClick={() => setMobileMenuOpen(false)}
-                />
-                <MobileNavLink
-                  to="/movements"
-                  icon={<History className="w-4 h-4" />}
-                  label="Movimientos"
-                  onClick={() => setMobileMenuOpen(false)}
-                />
-                <MobileNavLink
-                  to="/notifications"
-                  icon={<Bell className="w-4 h-4" />}
-                  label="Notificaciones"
-                  badge={unreadCount}
-                  onClick={() => setMobileMenuOpen(false)}
-                />
-                <MobileNavLink
-                  to="/tickets"
-                  icon={<LifeBuoy className="w-4 h-4" />}
-                  label="Casos"
-                  onClick={() => setMobileMenuOpen(false)}
-                />
-              </nav>
+                  className="shrink-0 rounded-3xl bg-gradient-to-br from-[#EDE9FB] to-[#F5F4FA] dark:from-muted/10 dark:to-muted/10 border border-[#E4E0F5] dark:border-hairline shadow-sm p-4 flex flex-col items-center justify-center text-center hover:shadow-md transition-shadow"
+                >
+                  <Avatar className="w-14 h-14 mb-2 bg-white/60 dark:bg-white/5 shrink-0">
+                    <AvatarFallback className="bg-transparent">
+                      <KintuAvatar
+                        savingsRate={savingsRate}
+                        incomes={dash?.income ?? 0}
+                        expenses={dash?.expense ?? 0}
+                        size={56}
+                      />
+                    </AvatarFallback>
+                  </Avatar>
+                  <p className="text-xs font-bold text-[#4C3A8C] dark:text-[#B9A9F5] leading-tight">
+                    ¡Tu árbol crece!
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5 mb-2 leading-tight">
+                    Cada ahorro te acerca a tus metas.
+                  </p>
+                  <KintuLevelBar
+                    level={treeLevel}
+                    progressPct={treeProgress}
+                    className="w-full shrink-0"
+                  />
+                </Link>
+              </div>
             </div>
 
-            <div className="flex flex-col gap-1.5 pt-4 border-t border-hairline">
+            <div className="flex flex-col gap-1.5 pt-4 border-t border-hairline shrink-0">
               <button
                 onClick={() => {
                   setIsProfileOpen(true);
